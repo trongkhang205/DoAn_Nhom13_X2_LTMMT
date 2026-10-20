@@ -28,8 +28,11 @@ public class GatewayConnector implements WebSocket.Listener {
     private WebInputHandler inputHandler;
     private final StringBuilder textBuffer = new StringBuilder();
 
+    private Thread connectorThread;
+    private final Object sendLock = new Object();
+
     public GatewayConnector(String gatewayUrl, String deviceId, java.util.function.Supplier<String> passwordSupplier, ServerLogger logger) {
-        this.gatewayUrl = gatewayUrl != null ? gatewayUrl : "ws://localhost:3000";
+        this.gatewayUrl = gatewayUrl != null ? gatewayUrl : "ws://127.0.0.1:3000";
         this.deviceId = deviceId;
         this.passwordSupplier = passwordSupplier;
         this.logger = logger;
@@ -40,9 +43,70 @@ public class GatewayConnector implements WebSocket.Listener {
     }
 
     public void start() {
-        Thread connectorThread = new Thread(this::connectLoop, "GatewayConnector-Thread");
+        connectorThread = new Thread(this::connectLoop, "GatewayConnector-Thread");
         connectorThread.setDaemon(true);
         connectorThread.start();
+    }
+
+    public synchronized void stop() {
+        this.connected = false;
+        if (connectorThread != null) {
+            connectorThread.interrupt();
+        }
+        if (webSocket != null) {
+            try {
+                webSocket.abort();
+            } catch (Exception ignored) {}
+            webSocket = null;
+        }
+        stopStreaming();
+    }
+
+    public synchronized void reconnectNow() {
+        this.connected = false;
+        if (webSocket != null) {
+            try {
+                webSocket.abort();
+            } catch (Exception ignored) {}
+            webSocket = null;
+        }
+        if (connectorThread != null) {
+            connectorThread.interrupt();
+        }
+    }
+
+    public void safeSendText(String text) {
+        synchronized (sendLock) {
+            if (webSocket != null && !webSocket.isOutputClosed()) {
+                try {
+                    webSocket.sendText(text, true).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    if (logger != null) {
+                        logger.appendLog("GatewayConnector safeSendText lỗi: " + e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    public void safeSendBinary(byte[] payload) throws IOException {
+        synchronized (sendLock) {
+            if (webSocket != null && !webSocket.isOutputClosed()) {
+                try {
+                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new IOException("WebSocket sendBinary lỗi: " + e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    public void safeSendPing() throws Exception {
+        synchronized (sendLock) {
+            if (webSocket != null && !webSocket.isOutputClosed()) {
+                webSocket.sendPing(ByteBuffer.wrap(new byte[]{1})).get(3, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        }
     }
 
     private void connectLoop() {
@@ -53,41 +117,41 @@ public class GatewayConnector implements WebSocket.Listener {
                 }
 
                 HttpClient client = HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(10))
+                        .connectTimeout(Duration.ofSeconds(5))
                         .build();
 
                 this.webSocket = client.newWebSocketBuilder()
                         .header("User-Agent", "RemoteDesktop-JavaHost/2.0")
                         .buildAsync(URI.create(gatewayUrl), this)
-                        .join();
+                        .get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-                // Đăng ký Device ID với Gateway
+                this.connected = true;
+
+                // Đăng ký Device ID với Gateway và chờ hoàn tất
                 String registerMsg = "{\"type\":\"register_host\",\"id\":\"" + deviceId + "\",\"name\":\"Máy tính nhóm 13\"}";
-                webSocket.sendText(registerMsg, true);
+                safeSendText(registerMsg);
 
                 if (logger != null) {
                     logger.appendLog("GatewayConnector: ĐÃ KẾT NỐI CLOUD RELAY! Mã thiết bị Internet (Device ID): [" + formatDeviceId(deviceId) + "]");
                 }
 
-                this.connected = true;
-
                 // Giữ kết nối và gửi Heartbeat định kỳ
-                while (connected && webSocket != null) {
-                    Thread.sleep(15000);
-                    if (webSocket != null && connected) {
-                        webSocket.sendPing(ByteBuffer.wrap(new byte[]{1}));
+                while (connected && webSocket != null && !webSocket.isInputClosed() && !webSocket.isOutputClosed()) {
+                    Thread.sleep(4000);
+                    if (connected && webSocket != null) {
+                        safeSendPing();
                     }
                 }
             } catch (Exception e) {
                 this.connected = false;
+                stopStreaming();
                 if (logger != null) {
-                    logger.appendLog("GatewayConnector: Chưa thấy Gateway trên mạng (" + e.getMessage() + "), sẽ thử lại sau 10s...");
+                    logger.appendLog("GatewayConnector: Kênh Cloud Relay chưa sẵn sàng (" + e.getMessage() + "), sẽ thử lại sau 3s...");
                 }
                 try {
-                    Thread.sleep(10000);
+                    Thread.sleep(3000);
                 } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
+                    // Tiếp tục vòng lặp kết nối lại ngay lập tức
                 }
             }
         }
@@ -121,16 +185,21 @@ public class GatewayConnector implements WebSocket.Listener {
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
         this.connected = false;
         if (logger != null) {
-            logger.appendLog("GatewayConnector: Mất kết nối tới Cloud Relay Gateway.");
+            logger.appendLog("GatewayConnector: Kênh Cloud Relay đã đóng (" + statusCode + "). Đang kết nối lại...");
         }
         stopStreaming();
+        if (connectorThread != null) connectorThread.interrupt();
         return null;
     }
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
         this.connected = false;
+        if (logger != null) {
+            logger.appendLog("GatewayConnector: Lỗi kênh Cloud Relay (" + (error != null ? error.getMessage() : "unknown") + "). Đang kết nối lại...");
+        }
         stopStreaming();
+        if (connectorThread != null) connectorThread.interrupt();
     }
 
     private void handleGatewayMessage(String json) {
@@ -152,7 +221,7 @@ public class GatewayConnector implements WebSocket.Listener {
                 java.awt.Dimension screenSize = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
                 String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
                         + screenSize.width + ",\"height\":" + screenSize.height + "}";
-                webSocket.sendText(resp, true);
+                safeSendText(resp);
 
                 startStreaming();
             } else {
@@ -160,7 +229,7 @@ public class GatewayConnector implements WebSocket.Listener {
                     logger.appendLog("GatewayConnector: Từ chối kết nối qua Internet (Mật khẩu không khớp: Nhận '" + normalizedClient + "' vs Máy chủ '" + normalizedExpected + "').");
                 }
                 String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! Vui lòng kiểm tra lại mật khẩu trên máy tính.\"}";
-                webSocket.sendText(resp, true);
+                safeSendText(resp);
             }
         } else if (inputHandler != null) {
             inputHandler.handleMessage(json);
@@ -170,19 +239,11 @@ public class GatewayConnector implements WebSocket.Listener {
     private synchronized void startStreaming() {
         stopStreaming();
 
-        // Gửi khung nhị phân ảnh màn hình qua WebSocket của Gateway
-        WebScreenCaster.BinaryFrameSender frameSender = (payload) -> {
-            if (webSocket != null && connected) {
-                webSocket.sendBinary(ByteBuffer.wrap(payload), true);
-            }
-        };
+        // Gửi khung nhị phân ảnh màn hình qua WebSocket của Gateway (thread-safe)
+        WebScreenCaster.BinaryFrameSender frameSender = this::safeSendBinary;
 
-        // Gửi văn bản JSON qua WebSocket của Gateway
-        WebInputHandler.TextMessageSender textSender = (text) -> {
-            if (webSocket != null && connected) {
-                webSocket.sendText(text, true);
-            }
-        };
+        // Gửi văn bản JSON qua WebSocket của Gateway (thread-safe)
+        WebInputHandler.TextMessageSender textSender = this::safeSendText;
 
         this.screenCaster = new WebScreenCaster(frameSender, logger);
         this.inputHandler = new WebInputHandler(textSender, logger, screenCaster);

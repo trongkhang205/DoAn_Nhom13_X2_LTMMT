@@ -198,9 +198,13 @@
                         badgeTunnelStatus.className = 'tunnel-status-badge tunnel-badge-on';
                         badgeTunnelStatus.textContent = 'Đang Hoạt Động';
                     }
-                    if (dispTunnelUrl) dispTunnelUrl.textContent = info.tunnelUrl;
+                    const quickUrl = `${info.tunnelUrl}/?id=${info.deviceId || ''}`;
+                    if (dispTunnelUrl) {
+                        dispTunnelUrl.textContent = quickUrl;
+                        dispTunnelUrl.setAttribute('data-quick-url', quickUrl);
+                    }
                     if (btnOpenTunnelUrl) {
-                        btnOpenTunnelUrl.href = info.tunnelUrl;
+                        btnOpenTunnelUrl.href = quickUrl;
                         btnOpenTunnelUrl.style.display = 'inline-flex';
                     }
                 } else {
@@ -369,7 +373,8 @@
     if (btnCopyTunnelUrl) {
         btnCopyTunnelUrl.addEventListener('click', () => {
             if (dispTunnelUrl) {
-                copyTextToClipboard(dispTunnelUrl.textContent, 'Đã sao chép liên kết Internet 4G vào bộ nhớ tạm');
+                const urlToCopy = dispTunnelUrl.getAttribute('data-quick-url') || dispTunnelUrl.textContent;
+                copyTextToClipboard(urlToCopy, 'Đã sao chép liên kết Internet 4G (Kèm Mã Thiết Bị) vào bộ nhớ tạm');
             }
         });
     }
@@ -601,7 +606,7 @@
 
             ws.onerror = () => {
                 if (!isAuthenticated) {
-                    showClientError(`Không thể kết nối Cloud Relay Gateway (${gatewayHost}:3000)! Hãy đảm bảo Gateway đang chạy (chạy npm start trong gateway/).`);
+                    showClientError(`Không thể kết nối Cloud Relay Gateway (${gatewayWsUrl})! Hãy đảm bảo Gateway đang chạy.`);
                     setConnectingButton(false);
                 }
             };
@@ -1369,6 +1374,45 @@
     function escapeHtml(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Xử lý tự động cấu hình khi mở qua đường dẫn Internet hoặc Quick Link
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetId = urlParams.get('id') || urlParams.get('device');
+        const targetPass = urlParams.get('pass') || urlParams.get('password');
+        const isPublicDomain = window.location.hostname.includes('trycloudflare.com')
+                            || window.location.hostname.includes('loca.lt')
+                            || window.location.hostname.includes('ngrok')
+                            || (!window.location.hostname.startsWith('192.168.') && !window.location.hostname.startsWith('10.') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1');
+
+        if (targetId) {
+            // Có ID trong URL -> Tự động chuyển sang tab Client và chế độ Internet
+            switchView('viewClient');
+            if (tabModeInternet) tabModeInternet.click();
+            if (clientTargetDeviceId) {
+                let digits = targetId.replace(/\D/g, '').slice(0, 9);
+                let formatted = '';
+                for (let i = 0; i < digits.length; i++) {
+                    if (i > 0 && i % 3 === 0) formatted += ' ';
+                    formatted += digits[i];
+                }
+                clientTargetDeviceId.value = formatted;
+            }
+            if (targetPass && clientTargetPass) {
+                clientTargetPass.value = targetPass;
+            }
+            if (clientTargetPass) {
+                clientTargetPass.focus();
+            }
+            showToast('Đã tự động tải Mã Thiết Bị: ' + targetId, 'info');
+        } else if (isPublicDomain) {
+            // Khi mở từ tên miền Internet công cộng, ưu tiên chuyển chế độ Client Internet
+            switchView('viewClient');
+            if (tabModeInternet) tabModeInternet.click();
+        }
+    } catch (e) {
+        console.warn('Lỗi phân tích URL params:', e);
     }
 
     // Khởi chạy ban đầu: Lấy server-info

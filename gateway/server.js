@@ -45,6 +45,23 @@ const server = http.createServer((req, res) => {
         }));
     }
 
+    // API tương thích cho client từ xa
+    if (url.pathname === '/api/server-info') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify({
+            ip: 'Cloud-Relay',
+            port: PORT,
+            isSharingEnabled: true,
+            activeClients: hosts.size,
+            isTunnelActive: true
+        }));
+    }
+
+    if (url.pathname === '/api/server-logs') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(JSON.stringify([]));
+    }
+
     // Phục vụ giao diện Web (Chia sẻ thư mục web/ của dự án)
     let filePath = path.join(__dirname, '..', 'web', url.pathname === '/' ? 'index.html' : url.pathname);
     if (!fs.existsSync(filePath)) {
@@ -83,6 +100,10 @@ wss.on('connection', (ws, req) => {
 
     console.log(`[+] Kết nối mới từ: ${req.socket.remoteAddress} (Path: ${url.pathname})`);
 
+    ws.on('error', (err) => {
+        console.error(`[WebSocket Error] Role: ${role || 'unknown'}, ID: ${currentDeviceId || 'none'}:`, err.message);
+    });
+
     ws.on('message', (data, isBinary) => {
         // Nếu là Binary Stream (ảnh màn hình nén):
         if (isBinary) {
@@ -111,14 +132,16 @@ wss.on('connection', (ws, req) => {
             // 1. Máy Host (Java Agent) Đăng ký Device ID
             if (msg.type === 'register_host') {
                 role = 'host';
-                currentDeviceId = String(msg.id).trim();
+                currentDeviceId = String(msg.id).trim().replace(/\s+/g, '');
+                const oldHost = hosts.get(currentDeviceId);
+                const clients = (oldHost && oldHost.clients) ? oldHost.clients : new Set();
                 hosts.set(currentDeviceId, {
                     ws: ws,
                     name: msg.name || 'Remote Host',
                     connectedAt: new Date().toISOString(),
-                    clients: new Set()
+                    clients: clients
                 });
-                console.log(`[Host Registered] ID: ${currentDeviceId} (${msg.name})`);
+                console.log(`[Host Registered] ID: ${currentDeviceId} (${msg.name}) | Online hosts: ${hosts.size}`);
                 ws.send(JSON.stringify({ type: 'registered', id: currentDeviceId, success: true }));
                 return;
             }
@@ -126,10 +149,11 @@ wss.on('connection', (ws, req) => {
             // 2. Máy Khách (Web Client) Yêu cầu kết nối vào Device ID
             if (msg.type === 'join_host') {
                 role = 'client';
-                currentDeviceId = String(msg.id).trim();
+                currentDeviceId = String(msg.id).trim().replace(/\s+/g, '');
                 const host = hosts.get(currentDeviceId);
 
-                if (!host || host.ws.readyState !== WebSocket.OPEN) {
+                if (!host || !host.ws || host.ws.readyState !== WebSocket.OPEN) {
+                    console.log(`[Join Failed] Host ID: ${currentDeviceId} không tìm thấy hoặc offline. Total hosts: ${hosts.size}`);
                     ws.send(JSON.stringify({
                         type: 'auth_result',
                         success: false,
@@ -173,9 +197,10 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         if (role === 'host' && currentDeviceId) {
-            console.log(`[-] Host ${currentDeviceId} đã ngắt kết nối.`);
             const host = hosts.get(currentDeviceId);
-            if (host) {
+            // Chỉ gỡ bỏ khi chính websocket này là websocket hiện tại của host
+            if (host && host.ws === ws) {
+                console.log(`[-] Host ${currentDeviceId} đã ngắt kết nối.`);
                 host.clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({
@@ -185,12 +210,14 @@ wss.on('connection', (ws, req) => {
                         client.close();
                     }
                 });
+                hosts.delete(currentDeviceId);
+            } else {
+                console.log(`[-] Socket cũ của Host ${currentDeviceId} đóng (Host đã kết nối lại bằng socket mới).`);
             }
-            hosts.delete(currentDeviceId);
         } else if (role === 'client' && currentDeviceId) {
             console.log(`[-] Client ngắt kết nối khỏi Host ${currentDeviceId}.`);
             const host = hosts.get(currentDeviceId);
-            if (host) {
+            if (host && host.clients) {
                 host.clients.delete(ws);
             }
         }

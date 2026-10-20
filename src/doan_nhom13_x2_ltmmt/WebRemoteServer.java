@@ -66,10 +66,13 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         this.localIp = detectLocalIP();
         this.deviceId = generateRandomDeviceId();
         
+        // Đảm bảo Cloud Relay Gateway luôn chạy ngầm trên cổng 3000
+        ensureGatewayRunning();
+
         // Tự động kết nối tới Cloud Relay Gateway ở chế độ nền
         String gwUrl = System.getenv("GATEWAY_URL");
         if (gwUrl == null || gwUrl.trim().isEmpty()) {
-            gwUrl = System.getProperty("gateway.url", "ws://localhost:3000");
+            gwUrl = System.getProperty("gateway.url", "ws://127.0.0.1:3000");
         }
         this.gatewayConnector = new GatewayConnector(gwUrl, deviceId, () -> this.password, this);
         this.gatewayConnector.start();
@@ -143,6 +146,17 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             try {
                 ensureGatewayRunning();
 
+                // Đảm bảo GatewayConnector được kết nối và đăng ký Device ID ngay lập tức
+                if (gatewayConnector != null) {
+                    gatewayConnector.reconnectNow();
+                }
+
+                // Dọn dẹp bất kỳ tiến trình cloudflared cũ nào trước khi khởi chạy
+                try {
+                    new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start().waitFor();
+                    Thread.sleep(400);
+                } catch (Exception ignored) {}
+
                 File cfExe = new File("cloudflared.exe");
                 if (!cfExe.exists()) {
                     cfExe = new File("..", "cloudflared.exe");
@@ -165,8 +179,17 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                     if (m.find()) {
                         currentTunnelUrl = m.group(0);
                         appendLog("CloudTunnel: ĐÃ KÍCH HOẠT! Link Internet 4G: " + currentTunnelUrl);
+                        // Đảm bảo host đăng ký chắc chắn trên Gateway
+                        if (gatewayConnector != null) {
+                            gatewayConnector.reconnectNow();
+                        }
                         break;
                     }
+                }
+
+                // Tiếp tục đọc log ngầm để tránh đầy buffer ống dẫn (pipe buffer) làm treo cloudflared
+                while (isTunnelActive && tunnelProcess != null && tunnelProcess.isAlive()) {
+                    if (reader.readLine() == null) break;
                 }
             } catch (Exception e) {
                 appendLog("CloudTunnel lỗi: " + e.getMessage());
@@ -182,9 +205,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             try {
                 tunnelProcess.destroyForcibly();
                 tunnelProcess = null;
-                appendLog("CloudTunnel: Đã tắt cầu nối Internet 4G.");
             } catch (Exception ignored) {}
         }
+        try {
+            new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start();
+        } catch (Exception ignored) {}
+        appendLog("CloudTunnel: Đã tắt cầu nối Internet 4G.");
     }
 
     private synchronized void ensureGatewayRunning() {
@@ -197,7 +223,15 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                 if (!gwDir.exists()) gwDir = new File("..", "gateway");
                 ProcessBuilder pb = new ProcessBuilder("node", "server.js");
                 pb.directory(gwDir);
+                pb.redirectErrorStream(true);
                 gatewayProcess = pb.start();
+                // Đọc ngầm để không bị nghẽn buffer ống dẫn
+                new Thread(() -> {
+                    try (BufferedReader r = new BufferedReader(new InputStreamReader(gatewayProcess.getInputStream()))) {
+                        String l;
+                        while ((l = r.readLine()) != null) {}
+                    } catch (Exception ignored) {}
+                }, "Gateway-Log-Drainer").start();
                 appendLog("WebRemoteServer: Tự động khởi động Cloud Gateway trên cổng 3000.");
                 Thread.sleep(1500);
             } catch (Exception e) {
@@ -656,6 +690,16 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
     public void stop() {
         running = false;
+        stopInternetTunnel();
+        if (gatewayConnector != null) {
+            gatewayConnector.stop();
+        }
+        if (gatewayProcess != null) {
+            try {
+                gatewayProcess.destroyForcibly();
+                gatewayProcess = null;
+            } catch (Exception ignored) {}
+        }
         try {
             if (discoverySocket != null && !discoverySocket.isClosed()) {
                 discoverySocket.close();
