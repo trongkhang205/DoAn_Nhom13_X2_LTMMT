@@ -1,0 +1,23 @@
+@echo off
+title Khoi Chay Cloud Relay Gateway & Cloudflare Tunnel - Nhom 13
+cd /d "%~dp0"
+echo ======================================================================
+echo   KHOI CHAY KET NOI XUYEN INTERNET (4G / KHAC MANG KHONG CAN MO PORT)
+echo   Do An Lap Trinh Mang May Tinh - Nhom 13 (X2)
+echo ======================================================================
+echo.
+
+echo [*] 1. Dang khoi dong Cloud Relay Gateway tren cong 3000...
+start "Cloud Relay Gateway (Port 3000)" cmd /k "cd gateway && node server.js"
+timeout /t 2 /nobreak >nul
+
+echo [*] 2. Dang ket noi toi he thong Cloudflare de tao duong truyen Internet...
+echo [*] Vui long doi 3-5 giay, duong link HTTPS ket thuc bang .trycloudflare.com se xuat hien ben duoi!
+echo.
+echo ======================================================================
+echo   COPY DUONG LINK HTTPS .trycloudflare.com VA MO TREN DIEN THOAI (4G):
+echo ======================================================================
+echo.
+
+.\cloudflared.exe tunnel --url http://localhost:3000
+pause

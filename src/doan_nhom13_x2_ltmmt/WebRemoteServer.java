@@ -63,7 +63,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         if (gwUrl == null || gwUrl.trim().isEmpty()) {
             gwUrl = System.getProperty("gateway.url", "ws://localhost:3000");
         }
-        this.gatewayConnector = new GatewayConnector(gwUrl, deviceId, this.password, this);
+        this.gatewayConnector = new GatewayConnector(gwUrl, deviceId, () -> this.password, this);
         this.gatewayConnector.start();
 
         appendLog("Khởi tạo Web Remote Platform trên cổng " + port + ". IP: " + localIp);

@@ -19,7 +19,7 @@ public class GatewayConnector implements WebSocket.Listener {
 
     private final String gatewayUrl;
     private final String deviceId;
-    private final String password;
+    private final java.util.function.Supplier<String> passwordSupplier;
     private final ServerLogger logger;
     private WebSocket webSocket;
     private volatile boolean connected = false;
@@ -28,11 +28,15 @@ public class GatewayConnector implements WebSocket.Listener {
     private WebInputHandler inputHandler;
     private final StringBuilder textBuffer = new StringBuilder();
 
-    public GatewayConnector(String gatewayUrl, String deviceId, String password, ServerLogger logger) {
+    public GatewayConnector(String gatewayUrl, String deviceId, java.util.function.Supplier<String> passwordSupplier, ServerLogger logger) {
         this.gatewayUrl = gatewayUrl != null ? gatewayUrl : "ws://localhost:3000";
         this.deviceId = deviceId;
-        this.password = password;
+        this.passwordSupplier = passwordSupplier;
         this.logger = logger;
+    }
+
+    public GatewayConnector(String gatewayUrl, String deviceId, String password, ServerLogger logger) {
+        this(gatewayUrl, deviceId, () -> password, logger);
     }
 
     public void start() {
@@ -136,7 +140,11 @@ public class GatewayConnector implements WebSocket.Listener {
 
         if ("auth".equals(type)) {
             String clientPass = data.get("password");
-            if (password != null && password.equalsIgnoreCase(clientPass != null ? clientPass.trim() : "")) {
+            String expectedPass = passwordSupplier != null ? passwordSupplier.get() : "";
+            String normalizedClient = clientPass != null ? clientPass.trim() : "";
+            String normalizedExpected = expectedPass != null ? expectedPass.trim() : "";
+
+            if (!normalizedExpected.isEmpty() && normalizedExpected.equalsIgnoreCase(normalizedClient)) {
                 if (logger != null) {
                     logger.appendLog("GatewayConnector: Khách kết nối qua Internet xác thực THÀNH CÔNG!");
                 }
@@ -149,9 +157,9 @@ public class GatewayConnector implements WebSocket.Listener {
                 startStreaming();
             } else {
                 if (logger != null) {
-                    logger.appendLog("GatewayConnector: Từ chối kết nối qua Internet (Sai mật khẩu).");
+                    logger.appendLog("GatewayConnector: Từ chối kết nối qua Internet (Mật khẩu không khớp: Nhận '" + normalizedClient + "' vs Máy chủ '" + normalizedExpected + "').");
                 }
-                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác!\"}";
+                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! Vui lòng kiểm tra lại mật khẩu trên máy tính.\"}";
                 webSocket.sendText(resp, true);
             }
         } else if (inputHandler != null) {
