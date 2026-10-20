@@ -44,8 +44,19 @@ public class WebScreenCaster implements Runnable {
     private ImageWriteParam writeParam;
     private final Object writerLock = new Object();
 
+    @FunctionalInterface
+    public interface BinaryFrameSender {
+        void send(byte[] payload) throws IOException;
+    }
+    private final BinaryFrameSender frameSender;
+
     public WebScreenCaster(OutputStream out, ServerLogger logger) {
-        this.out = out;
+        this((payload) -> WebSocketHelper.sendBinaryFrame(out, payload), logger);
+    }
+
+    public WebScreenCaster(BinaryFrameSender frameSender, ServerLogger logger) {
+        this.out = null;
+        this.frameSender = frameSender;
         this.logger = logger;
 
         try {
@@ -247,8 +258,8 @@ public class WebScreenCaster implements Runnable {
                 buffer.putLong(startTime);
                 buffer.put(jpegBytes);
 
-                // 7. Gửi qua WebSocket
-                WebSocketHelper.sendBinaryFrame(out, buffer.array());
+                // 7. Gửi qua WebSocket (Hỗ trợ cả Socket trực tiếp và Cloud Relay)
+                frameSender.send(buffer.array());
 
                 // 8. Điều tiết tốc độ khung hình
                 long elapsed = System.currentTimeMillis() - startTime;

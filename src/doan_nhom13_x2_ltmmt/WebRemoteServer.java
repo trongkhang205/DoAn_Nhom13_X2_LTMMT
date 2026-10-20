@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *    - Màn Hình Điều Khiển (Remote Viewer Canvas)
  * 2. Cung cấp REST API cho Web Frontend (/api/server-info, /api/server-genpass, /api/scan-lan, /api/logs).
  * 3. Quản lý luồng WebSocket (/ws) truyền nhị phân màn hình và nhận lệnh tương tác.
+ * 4. Tích hợp Cloud Relay Gateway (Device ID 9 số) và cơ chế chống Brute-Force mật khẩu.
  */
 public class WebRemoteServer implements Runnable, ServerLogger {
 
@@ -43,12 +45,33 @@ public class WebRemoteServer implements Runnable, ServerLogger {
     private String localIp = "127.0.0.1";
     private final AtomicInteger activeClients = new AtomicInteger(0);
 
+    // Cloud Relay Gateway & Bảo mật Anti Brute-Force
+    private final String deviceId;
+    private GatewayConnector gatewayConnector;
+    private final Map<String, Integer> failedAttempts = new ConcurrentHashMap<>();
+    private final Map<String, Long> lockoutExpiry = new ConcurrentHashMap<>();
+
     public WebRemoteServer(int port, String password, ServerLogger externalLogger) {
         this.port = port;
         this.password = (password != null && !password.trim().isEmpty()) ? password.trim().toLowerCase() : generateRandomPassword();
         this.externalLogger = externalLogger;
         this.localIp = detectLocalIP();
+        this.deviceId = generateRandomDeviceId();
+        
+        // Tự động kết nối tới Cloud Relay Gateway ở chế độ nền
+        this.gatewayConnector = new GatewayConnector("ws://localhost:3000", deviceId, this.password, this);
+        this.gatewayConnector.start();
+
         appendLog("Khởi tạo Web Remote Platform trên cổng " + port + ". IP: " + localIp);
+        appendLog("Mã Thiết Bị Internet (Device ID): " + GatewayConnector.formatDeviceId(deviceId));
+    }
+
+    public static String generateRandomDeviceId() {
+        Random rnd = new Random();
+        int p1 = 100 + rnd.nextInt(900);
+        int p2 = 100 + rnd.nextInt(900);
+        int p3 = 100 + rnd.nextInt(900);
+        return "" + p1 + p2 + p3;
     }
 
     public static String generateRandomPassword() {
@@ -187,7 +210,8 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         if (uri.startsWith("/api/server-info")) {
             String json = "{\"ip\":\"" + localIp + "\",\"port\":" + port 
                     + ",\"password\":\"" + password + "\",\"isSharingEnabled\":" + isSharingEnabled 
-                    + ",\"activeClients\":" + activeClients.get() + "}";
+                    + ",\"activeClients\":" + activeClients.get()
+                    + ",\"deviceId\":\"" + deviceId + "\",\"formattedDeviceId\":\"" + GatewayConnector.formatDeviceId(deviceId) + "\"}";
             sendJsonResponse(out, json);
             return;
         }
@@ -452,32 +476,62 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
                 if (!authenticated[0]) { // chưa xác thực
                     if ("auth".equals(type)) {
+                        String clientIp = socket.getInetAddress().getHostAddress();
+
+                        // Kiểm tra trạng thái khóa IP do brute-force
+                        Long expiry = lockoutExpiry.get(clientIp);
+                        if (expiry != null) {
+                            if (System.currentTimeMillis() < expiry) {
+                                long remainingSec = (expiry - System.currentTimeMillis()) / 1000;
+                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Địa chỉ IP này bị khóa tạm " + remainingSec + " giây do nhập sai mật khẩu quá 5 lần!\"}";
+                                WebSocketHelper.sendTextFrame(out, resp);
+                                appendLog("[CẢNH BÁO BẢO MẬT] Chặn IP " + clientIp + " (Đang bị khóa do nghi vấn Brute-Force)");
+                                break;
+                            } else {
+                                lockoutExpiry.remove(clientIp);
+                                failedAttempts.remove(clientIp);
+                            }
+                        }
+
                         if (!isSharingEnabled) {
                             String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Máy chủ hiện đang TẮT chế độ chia sẻ màn hình!\"}";
                             WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Từ chối kết nối từ " + socket.getInetAddress().getHostAddress() + " (Chia sẻ đang tắt)");
+                            appendLog("Từ chối kết nối từ " + clientIp + " (Chia sẻ đang tắt)");
                             break;
                         }
 
                         String clientPass = data.get("password");
                         if (password != null && password.equalsIgnoreCase(clientPass != null ? clientPass.trim() : "")) {
+                            // Xóa lịch sử sai mật khẩu
+                            failedAttempts.remove(clientIp);
+                            lockoutExpiry.remove(clientIp);
+
                             authenticated[0] = true;
                             activeClients.incrementAndGet();
                             Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
                             String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
                                     + screenSize.width + ",\"height\":" + screenSize.height + "}";
                             WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Web Client (" + socket.getInetAddress().getHostAddress() + ") xác thực THÀNH CÔNG! Đang truyền màn hình...");
+                            appendLog("Web Client (" + clientIp + ") xác thực THÀNH CÔNG! Đang truyền màn hình...");
 
                             // Khởi động ScreenCaster trên luồng riêng
-                            // Cả ScreenCaster và InputHandler dùng cùng out → synchronized(out) trong WebSocketHelper đảm bảo thread-safe
                             screenCasterRef[0] = new WebScreenCaster(out, this);
                             new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
                             inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0]);
                         } else {
-                            String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! Vui lòng thử lại.\"}";
-                            WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Từ chối kết nối từ " + socket.getInetAddress().getHostAddress() + " (Sai mật khẩu)");
+                            int fails = failedAttempts.getOrDefault(clientIp, 0) + 1;
+                            failedAttempts.put(clientIp, fails);
+
+                            if (fails >= 5) {
+                                lockoutExpiry.put(clientIp, System.currentTimeMillis() + 5 * 60 * 1000);
+                                appendLog("[CẢNH BÁO BẢO MẬT] ĐÃ KHÓA TẠM IP " + clientIp + " trong 5 phút do nhập sai mật khẩu liên tiếp " + fails + " lần!");
+                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Bạn đã nhập sai quá 5 lần! IP của bạn bị khóa tạm thời trong 5 phút.\"}";
+                                WebSocketHelper.sendTextFrame(out, resp);
+                            } else {
+                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! (Còn " + (5 - fails) + " lần thử)\"}";
+                                WebSocketHelper.sendTextFrame(out, resp);
+                                appendLog("Từ chối kết nối từ " + clientIp + " (Sai mật khẩu lần " + fails + "/5)");
+                            }
                             break;
                         }
                     }

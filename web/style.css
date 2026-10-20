@@ -1376,3 +1376,62 @@ body {
         display: inline-flex !important;
     }
 }
+
+/* ================= CLOUD RELAY & DEVICE ID STYLES ================= */
+.conn-mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 4px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.conn-tab {
+    flex: 1;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.conn-tab.active {
+    background: var(--accent-indigo);
+    color: white;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.highlight-id-box {
+    background: rgba(99, 102, 241, 0.12) !important;
+    border-color: rgba(99, 102, 241, 0.3) !important;
+}
+
+.security-badge-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: var(--radius-sm);
+}
+
+.security-badge {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-emerald);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.security-tip {
+    font-size: 11px;
+    color: var(--text-muted);
+}
