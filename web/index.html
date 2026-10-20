@@ -467,9 +467,10 @@
                             <span id="lblQuality">Tiêu Chuẩn (65%)</span>
                         </button>
                         <div class="dropdown-menu" id="menuQuality">
-                            <button class="menu-item" data-quality="0.40">Tiết Kiệm Băng Thông (40%)</button>
-                            <button class="menu-item active" data-quality="0.65">Tiêu Chuẩn (65%)</button>
-                            <button class="menu-item" data-quality="0.85">Chất Lượng Cao HD (85%)</button>
+                            <button class="menu-item" data-quality="0.40" data-fps="20">Tiết Kiệm (40% - 20 FPS)</button>
+                            <button class="menu-item active" data-quality="0.65" data-fps="30">Tiêu Chuẩn (65% - 30 FPS)</button>
+                            <button class="menu-item" data-quality="0.75" data-fps="45">Mượt Mà (75% - 45 FPS)</button>
+                            <button class="menu-item" data-quality="0.85" data-fps="60">Siêu Mượt 60 FPS HD (85%)</button>
                         </div>
                     </div>
 
@@ -607,27 +608,43 @@
                             <polyline points="17 8 12 3 7 8"></polyline>
                             <line x1="12" y1="3" x2="12" y2="15"></line>
                         </svg>
-                        <p class="drop-text">Kéo thả tệp vào đây hoặc</p>
+                        <p class="drop-text">Kéo thả một hoặc nhiều tệp vào đây hoặc</p>
                         <label class="btn-choose-file" for="fileInputUpload">Chọn Tệp Tin</label>
-                        <input type="file" id="fileInputUpload" style="display:none;">
+                        <input type="file" id="fileInputUpload" multiple style="display:none;">
                     </div>
-                    <div class="file-info-box" id="fileInfoBox" style="display:none;">
-                        <span id="lblSelectedFileName">filename.ext</span>
-                        <span id="lblSelectedFileSize">0 KB</span>
+                    
+                    <!-- Danh sách hàng đợi tải lên (Multi-file Upload Queue) -->
+                    <div class="upload-queue-container" id="uploadQueueContainer" style="display:none;">
+                        <div class="queue-header">
+                            <span id="lblQueueCount">Hàng đợi gửi: 0 tệp</span>
+                            <button type="button" class="btn-clear-queue" id="btnClearQueue">Xóa danh sách</button>
+                        </div>
+                        <div class="upload-queue-list" id="uploadQueueList"></div>
                     </div>
+
+                    <!-- Tiến trình tổng thể & Tốc độ thời gian thực -->
                     <div class="progress-container" id="uploadProgressContainer" style="display:none;">
                         <div class="progress-bar-bg">
                             <div class="progress-bar-fill" id="uploadProgressBar"></div>
                         </div>
-                        <span class="progress-label" id="lblUploadProgress">0%</span>
+                        <div class="progress-meta">
+                            <span class="progress-speed" id="lblUploadSpeed">0.0 MB/s</span>
+                            <span class="progress-label" id="lblUploadProgress">0%</span>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Tab Tải Về Máy Này -->
                 <div class="file-tab-pane" id="paneDownload">
                     <div class="file-list-header">
-                        <span>Tệp trên máy chủ (RemoteDesktop_Received):</span>
-                        <button class="btn-refresh-files" id="btnRefreshFiles">🔄 Làm mới</button>
+                        <div class="dl-select-all-box">
+                            <input type="checkbox" id="chkSelectAllDl">
+                            <label for="chkSelectAllDl">Chọn tất cả</label>
+                        </div>
+                        <div class="dl-actions">
+                            <button class="btn-batch-dl" id="btnDownloadSelected" style="display:none;">⬇ Tải các mục đã chọn (0)</button>
+                            <button class="btn-refresh-files" id="btnRefreshFiles">🔄 Làm mới</button>
+                        </div>
                     </div>
                     <div class="remote-files-list" id="remoteFilesList">
                         <p class="empty-files-text">Đang tải danh sách tệp...</p>

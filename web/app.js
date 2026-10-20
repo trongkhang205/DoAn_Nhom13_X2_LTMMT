@@ -757,14 +757,22 @@
             } else if (msg.type === 'clipboard_data') {
                 txtClipboard.value = msg.text || '';
                 showToast('Đã nhận nội dung Clipboard từ máy từ xa', 'info');
+            } else if (msg.type === 'file_upload_ready') {
+                if (typeof window.onFileUploadReady === 'function') window.onFileUploadReady(msg);
             } else if (msg.type === 'file_upload_success') {
-                showToast(`Đã gửi tệp [${msg.name}] lên máy chủ thành công!`, 'success');
-                if (uploadProgressBar) uploadProgressBar.style.width = '100%';
-                if (lblUploadProgress) lblUploadProgress.textContent = 'Hoàn tất 100%!';
-                setTimeout(() => {
-                    if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
-                    if (btnStartUpload) btnStartUpload.disabled = false;
-                }, 1500);
+                if (typeof window.onFileUploadSuccess === 'function') {
+                    window.onFileUploadSuccess(msg);
+                } else {
+                    showToast(`Đã gửi tệp [${msg.name}] lên máy chủ thành công!`, 'success');
+                    if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+                    if (lblUploadProgress) lblUploadProgress.textContent = 'Hoàn tất 100%!';
+                }
+            } else if (msg.type === 'file_upload_error') {
+                if (typeof window.onFileUploadError === 'function') {
+                    window.onFileUploadError(msg);
+                } else {
+                    showToast(msg.message || 'Lỗi tải tệp lên!', 'error');
+                }
             } else if (msg.type === 'file_list_resp') {
                 renderRemoteFilesList(msg.files || []);
             } else if (msg.type === 'file_download_chunk') {
@@ -899,11 +907,13 @@
         item.addEventListener('click', () => {
             window.isManualQualitySelected = true;
             const qualityVal = parseFloat(item.getAttribute('data-quality'));
+            const fpsVal = parseInt(item.getAttribute('data-fps')) || 30;
             menuQuality.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
-            lblQuality.textContent = item.textContent.split(' ')[0] + ` (${Math.round(qualityVal * 100)}%)`;
+            lblQuality.textContent = item.textContent;
             sendJson({ type: 'quality', value: qualityVal });
-            showToast(`Đã đổi chất lượng hình ảnh: ${Math.round(qualityVal * 100)}% (Thủ công)`, 'info');
+            sendJson({ type: 'target_fps', value: fpsVal });
+            showToast(`Đã chuyển: ${item.textContent}`, 'info');
         });
     });
 
@@ -1057,6 +1067,7 @@
     });
 
     // ================= FILE TRANSFER 2-WAY (QUẢN LÝ TỆP TIN HAI CHIỀU) =================
+    // ================= FILE TRANSFER 2-WAY (QUẢN LÝ TỆP TIN HAI CHIỀU SIÊU TỐC) =================
     const btnFileTransfer = document.getElementById('btnFileTransfer');
     const fileModal = document.getElementById('fileModal');
     const btnCloseFileModal = document.getElementById('btnCloseFileModal');
@@ -1067,18 +1078,43 @@
     const paneDownload = document.getElementById('paneDownload');
     const fileDropZone = document.getElementById('fileDropZone');
     const fileInputUpload = document.getElementById('fileInputUpload');
-    const fileInfoBox = document.getElementById('fileInfoBox');
-    const lblSelectedFileName = document.getElementById('lblSelectedFileName');
-    const lblSelectedFileSize = document.getElementById('lblSelectedFileSize');
+    const uploadQueueContainer = document.getElementById('uploadQueueContainer');
+    const uploadQueueList = document.getElementById('uploadQueueList');
+    const lblQueueCount = document.getElementById('lblQueueCount');
+    const btnClearQueue = document.getElementById('btnClearQueue');
     const uploadProgressContainer = document.getElementById('uploadProgressContainer');
     const uploadProgressBar = document.getElementById('uploadProgressBar');
+    const lblUploadSpeed = document.getElementById('lblUploadSpeed');
     const lblUploadProgress = document.getElementById('lblUploadProgress');
     const btnStartUpload = document.getElementById('btnStartUpload');
     const btnRefreshFiles = document.getElementById('btnRefreshFiles');
     const remoteFilesList = document.getElementById('remoteFilesList');
+    const chkSelectAllDl = document.getElementById('chkSelectAllDl');
+    const btnDownloadSelected = document.getElementById('btnDownloadSelected');
 
-    let selectedUploadFile = null;
+    let uploadQueue = []; // [{ id, file, status: 'pending'|'uploading'|'success'|'error', percent: 0 }]
+    let isUploadingQueue = false;
+    let uploadAckWaiters = {};
     let downloadFileChunks = {};
+    let downloadResolvers = {};
+    let remoteFilesData = [];
+
+    // Lắng nghe tín hiệu ACK xác thực từ máy chủ
+    window.onFileUploadSuccess = function (msg) {
+        const fileId = msg.fileId;
+        if (fileId && uploadAckWaiters[fileId]) {
+            uploadAckWaiters[fileId](msg);
+            delete uploadAckWaiters[fileId];
+        }
+    };
+
+    window.onFileUploadError = function (msg) {
+        const fileId = msg.fileId;
+        if (fileId && uploadAckWaiters[fileId]) {
+            uploadAckWaiters[fileId]({ error: true, message: msg.message });
+            delete uploadAckWaiters[fileId];
+        }
+    };
 
     if (btnFileTransfer && fileModal) {
         btnFileTransfer.addEventListener('click', () => {
@@ -1108,7 +1144,7 @@
             btnRefreshFiles.addEventListener('click', () => sendJson({ type: 'file_list' }));
         }
 
-        // Kéo thả tệp tin
+        // Kéo thả một hoặc nhiều tệp tin
         if (fileDropZone) {
             fileDropZone.addEventListener('dragover', (e) => {
                 e.preventDefault();
@@ -1118,95 +1154,313 @@
             fileDropZone.addEventListener('drop', (e) => {
                 e.preventDefault();
                 fileDropZone.classList.remove('dragover');
-                if (e.dataTransfer.files.length > 0) {
-                    selectUploadFile(e.dataTransfer.files[0]);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    addFilesToUploadQueue(e.dataTransfer.files);
                 }
             });
         }
 
         if (fileInputUpload) {
             fileInputUpload.addEventListener('change', () => {
-                if (fileInputUpload.files.length > 0) {
-                    selectUploadFile(fileInputUpload.files[0]);
+                if (fileInputUpload.files && fileInputUpload.files.length > 0) {
+                    addFilesToUploadQueue(fileInputUpload.files);
+                    fileInputUpload.value = ''; // Cho phép chọn lại cùng tệp
                 }
             });
         }
 
-        function selectUploadFile(file) {
-            selectedUploadFile = file;
-            lblSelectedFileName.textContent = file.name;
-            lblSelectedFileSize.textContent = formatBytes(file.size);
-            fileInfoBox.style.display = 'flex';
-            btnStartUpload.disabled = false;
+        if (btnClearQueue) {
+            btnClearQueue.addEventListener('click', () => {
+                if (isUploadingQueue) return;
+                uploadQueue = [];
+                renderUploadQueue();
+            });
         }
 
-        // Gửi tệp lên máy chủ
+        function addFilesToUploadQueue(fileList) {
+            for (let i = 0; i < fileList.length; i++) {
+                const file = fileList[i];
+                uploadQueue.push({
+                    id: 'f_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                    file: file,
+                    status: 'pending',
+                    percent: 0
+                });
+            }
+            renderUploadQueue();
+        }
+
+        function renderUploadQueue() {
+            if (uploadQueue.length === 0) {
+                if (uploadQueueContainer) uploadQueueContainer.style.display = 'none';
+                if (btnStartUpload) btnStartUpload.disabled = true;
+                return;
+            }
+
+            if (uploadQueueContainer) uploadQueueContainer.style.display = 'block';
+            if (lblQueueCount) lblQueueCount.textContent = `Hàng đợi gửi: ${uploadQueue.length} tệp`;
+            if (btnStartUpload && !isUploadingQueue) btnStartUpload.disabled = false;
+
+            if (!uploadQueueList) return;
+            uploadQueueList.innerHTML = uploadQueue.map((item, idx) => {
+                let badgeClass = 'pending';
+                let badgeText = 'Chờ gửi';
+                if (item.status === 'uploading') {
+                    badgeClass = 'uploading';
+                    badgeText = `${item.percent}%`;
+                } else if (item.status === 'success') {
+                    badgeClass = 'success';
+                    badgeText = 'Hoàn tất';
+                } else if (item.status === 'error') {
+                    badgeClass = 'error';
+                    badgeText = 'Lỗi';
+                }
+
+                return `
+                    <div class="queue-file-item" id="queue_item_${item.id}">
+                        <div class="queue-file-meta">
+                            <span class="queue-file-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</span>
+                            <span class="queue-file-size">${formatBytes(item.file.size)}</span>
+                        </div>
+                        <div class="queue-file-right">
+                            <span class="queue-badge ${badgeClass}" id="badge_${item.id}">${badgeText}</span>
+                            ${!isUploadingQueue && item.status !== 'uploading' ? `<button type="button" class="btn-queue-remove" data-id="${item.id}">✕</button>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            uploadQueueList.querySelectorAll('.btn-queue-remove').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.getAttribute('data-id');
+                    uploadQueue = uploadQueue.filter(item => item.id !== id);
+                    renderUploadQueue();
+                });
+            });
+        }
+
+        // Bắt đầu truyền toàn bộ hàng đợi tệp tin với bộ đệm 128KB & Backpressure
         if (btnStartUpload) {
-            btnStartUpload.addEventListener('click', () => {
-                if (!selectedUploadFile) return;
+            btnStartUpload.addEventListener('click', async () => {
+                if (isUploadingQueue || uploadQueue.length === 0) return;
+                isUploadingQueue = true;
                 btnStartUpload.disabled = true;
-                uploadProgressContainer.style.display = 'block';
-                uploadProgressBar.style.width = '0%';
-                lblUploadProgress.textContent = '0%';
+                if (btnClearQueue) btnClearQueue.style.display = 'none';
 
-                const file = selectedUploadFile;
-                sendJson({ type: 'file_upload_start', name: file.name, size: file.size });
+                if (uploadProgressContainer) uploadProgressContainer.style.display = 'block';
+                if (uploadProgressBar) uploadProgressBar.style.width = '0%';
+                if (lblUploadSpeed) lblUploadSpeed.textContent = '0.0 MB/s';
+                if (lblUploadProgress) lblUploadProgress.textContent = 'Khởi động truyền tệp...';
 
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const arrayBuffer = reader.result;
-                    const chunkSize = 32 * 1024; // 32KB
-                    const totalChunks = Math.ceil(arrayBuffer.byteLength / chunkSize) || 1;
-                    let currentChunk = 0;
+                let successCount = 0;
+                const totalFiles = uploadQueue.length;
 
-                    function sendNextChunk() {
-                        if (currentChunk < totalChunks) {
-                            const start = currentChunk * chunkSize;
-                            const end = Math.min(start + chunkSize, arrayBuffer.byteLength);
-                            const chunkSlice = arrayBuffer.slice(start, end);
-                            const b64 = arrayBufferToBase64(chunkSlice);
+                for (let fIdx = 0; fIdx < totalFiles; fIdx++) {
+                    const item = uploadQueue[fIdx];
+                    if (item.status === 'success') continue;
 
-                            sendJson({ type: 'file_upload_chunk', data: b64 });
-                            currentChunk++;
-                            const percent = Math.round((currentChunk / totalChunks) * 100);
-                            uploadProgressBar.style.width = `${percent}%`;
-                            lblUploadProgress.textContent = `Đang gửi... ${percent}%`;
-                            setTimeout(sendNextChunk, 15);
-                        } else {
-                            sendJson({ type: 'file_upload_end' });
+                    item.status = 'uploading';
+                    renderUploadQueue();
+
+                    const file = item.file;
+                    const fileId = item.id;
+                    const totalSize = file.size;
+
+                    // 1. Thông báo bắt đầu tệp
+                    sendJson({
+                        type: 'file_upload_start',
+                        fileId: fileId,
+                        name: file.name,
+                        size: totalSize
+                    });
+
+                    // 2. Cắt lát và gửi từng chunk 128KB
+                    const chunkSize = 128 * 1024; // 128KB tối ưu
+                    const totalChunks = Math.ceil(totalSize / chunkSize) || 1;
+                    let sentBytes = 0;
+                    const uploadStartTime = performance.now();
+
+                    for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
+                        // Kiểm soát dòng dữ liệu (Backpressure) tránh nghẽn bộ đệm WebSocket
+                        while (ws && ws.bufferedAmount > 384 * 1024) {
+                            await new Promise(r => setTimeout(r, 4));
                         }
+
+                        const start = cIdx * chunkSize;
+                        const end = Math.min(start + chunkSize, totalSize);
+                        const slice = file.slice(start, end);
+                        const b64 = await readBlobAsBase64(slice);
+
+                        sendJson({
+                            type: 'file_upload_chunk',
+                            fileId: fileId,
+                            data: b64
+                        });
+
+                        sentBytes += (end - start);
+                        const percent = Math.min(99, Math.round((sentBytes / totalSize) * 100));
+                        item.percent = percent;
+
+                        // Cập nhật giao diện tốc độ MB/s
+                        const elapsedSec = (performance.now() - uploadStartTime) / 1000;
+                        const speedMBps = elapsedSec > 0 ? ((sentBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
+                        if (lblUploadSpeed) lblUploadSpeed.textContent = `${speedMBps} MB/s`;
+
+                        const overallPercent = Math.min(99, Math.round(((fIdx + (sentBytes / totalSize)) / totalFiles) * 100));
+                        if (uploadProgressBar) uploadProgressBar.style.width = `${overallPercent}%`;
+                        if (lblUploadProgress) {
+                            lblUploadProgress.textContent = `Tệp ${fIdx + 1}/${totalFiles} (${escapeHtml(file.name)}): ${percent}%`;
+                        }
+
+                        const badgeEl = document.getElementById(`badge_${item.id}`);
+                        if (badgeEl) badgeEl.textContent = `${percent}%`;
                     }
-                    sendNextChunk();
-                };
-                reader.readAsArrayBuffer(file);
+
+                    // 3. Gửi lệnh kết thúc tệp và CHỜ XÁC THỰC LƯU XONG TỪ MÁY CHỦ (ACK)
+                    if (lblUploadProgress) {
+                        lblUploadProgress.textContent = `Đang xác thực lưu tệp [${escapeHtml(file.name)}] trên máy chủ...`;
+                    }
+                    sendJson({ type: 'file_upload_end', fileId: fileId });
+
+                    // Chờ Server phản hồi file_upload_success
+                    const ackResult = await waitForUploadAck(fileId);
+                    if (ackResult && !ackResult.error) {
+                        item.status = 'success';
+                        item.percent = 100;
+                        successCount++;
+                    } else {
+                        item.status = 'error';
+                    }
+                    renderUploadQueue();
+                }
+
+                // Hoàn tất toàn bộ hàng đợi
+                isUploadingQueue = false;
+                if (btnClearQueue) btnClearQueue.style.display = 'inline-block';
+                if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+                if (lblUploadProgress) {
+                    lblUploadProgress.textContent = `Hoàn tất gửi ${successCount}/${totalFiles} tệp tin!`;
+                }
+
+                showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin lên máy chủ!`, 'success');
+                sendJson({ type: 'file_list' }); // Cập nhật lại danh sách tệp
+
+                setTimeout(() => {
+                    if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
+                    if (btnStartUpload) btnStartUpload.disabled = false;
+                }, 3000);
             });
         }
     }
 
+    // Helper: Chờ phản hồi ACK từ máy chủ với timeout 45s
+    function waitForUploadAck(fileId) {
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                delete uploadAckWaiters[fileId];
+                resolve({ error: false }); // Quá thời gian thì tiếp tục
+            }, 45000);
+
+            uploadAckWaiters[fileId] = (msg) => {
+                clearTimeout(timer);
+                resolve(msg);
+            };
+        });
+    }
+
+    // Helper: Đọc Blob thành chuỗi Base64 siêu tốc qua FileReader native
+    function readBlobAsBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const res = reader.result;
+                const commaIdx = res.indexOf(',');
+                resolve(commaIdx !== -1 ? res.substring(commaIdx + 1) : res);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    // ================= TẢI TỆP TIN TỪ MÁY CHỦ (BATCH DOWNLOAD) =================
     function renderRemoteFilesList(files) {
+        remoteFilesData = files || [];
         if (!remoteFilesList) return;
         if (!files || files.length === 0) {
             remoteFilesList.innerHTML = '<p class="empty-files-text">Thư mục nhận trên máy chủ hiện đang trống.</p>';
+            if (btnDownloadSelected) btnDownloadSelected.style.display = 'none';
+            if (chkSelectAllDl) chkSelectAllDl.checked = false;
             return;
         }
 
         remoteFilesList.innerHTML = files.map(f => `
             <div class="remote-file-item">
-                <div class="file-meta">
-                    <span class="file-name">${escapeHtml(f.name)}</span>
-                    <span class="file-sub">${formatBytes(f.size)} • ${escapeHtml(f.date)}</span>
+                <div class="remote-file-left">
+                    <input type="checkbox" class="chk-dl-file" data-name="${escapeHtml(f.name)}">
+                    <div class="file-meta">
+                        <span class="file-name">${escapeHtml(f.name)}</span>
+                        <span class="file-sub">${formatBytes(f.size)} • ${escapeHtml(f.date)}</span>
+                    </div>
                 </div>
                 <button class="btn-dl-file" data-name="${escapeHtml(f.name)}">⬇ Tải Về</button>
             </div>
         `).join('');
 
+        // Cập nhật trạng thái nút tải nhiều tệp
+        const checkBoxes = remoteFilesList.querySelectorAll('.chk-dl-file');
+        const updateBatchBtn = () => {
+            const selected = Array.from(checkBoxes).filter(cb => cb.checked);
+            if (btnDownloadSelected) {
+                if (selected.length > 0) {
+                    btnDownloadSelected.style.display = 'inline-block';
+                    btnDownloadSelected.textContent = `⬇ Tải các mục đã chọn (${selected.length})`;
+                } else {
+                    btnDownloadSelected.style.display = 'none';
+                }
+            }
+            if (chkSelectAllDl) {
+                chkSelectAllDl.checked = selected.length > 0 && selected.length === checkBoxes.length;
+            }
+        };
+
+        checkBoxes.forEach(cb => cb.addEventListener('change', updateBatchBtn));
+
+        if (chkSelectAllDl) {
+            chkSelectAllDl.onchange = () => {
+                checkBoxes.forEach(cb => cb.checked = chkSelectAllDl.checked);
+                updateBatchBtn();
+            };
+        }
+
+        if (btnDownloadSelected) {
+            btnDownloadSelected.onclick = async () => {
+                const selectedNames = Array.from(checkBoxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.getAttribute('data-name'));
+
+                if (selectedNames.length === 0) return;
+                showToast(`Bắt đầu tải ${selectedNames.length} tệp tin từ máy chủ...`, 'info');
+
+                for (const name of selectedNames) {
+                    await startDownloadFile(name);
+                }
+            };
+        }
+
         remoteFilesList.querySelectorAll('.btn-dl-file').forEach(btn => {
             btn.addEventListener('click', () => {
                 const name = btn.getAttribute('data-name');
-                downloadFileChunks[name] = [];
-                sendJson({ type: 'file_download_req', name: name });
-                showToast(`Đang yêu cầu tải tệp [${name}] từ máy chủ...`, 'info');
+                startDownloadFile(name);
             });
+        });
+    }
+
+    function startDownloadFile(name) {
+        return new Promise((resolve) => {
+            downloadFileChunks[name] = [];
+            downloadResolvers[name] = resolve;
+            sendJson({ type: 'file_download_req', name: name });
+            showToast(`Đang tải tệp [${name}] từ máy chủ...`, 'info');
         });
     }
 
@@ -1220,12 +1474,13 @@
         if (!chunks) return;
 
         const byteArrays = [];
-        for (const b64 of chunks) {
+        for (let i = 0; i < chunks.length; i++) {
+            const b64 = chunks[i];
             const binaryString = atob(b64);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+            for (let j = 0; j < len; j++) {
+                bytes[j] = binaryString.charCodeAt(j);
             }
             byteArrays.push(bytes);
         }
@@ -1240,17 +1495,13 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         delete downloadFileChunks[fileName];
-        showToast(`Đã tải xong tệp [${fileName}] về máy của bạn!`, 'success');
-    }
 
-    function arrayBufferToBase64(buffer) {
-        let binary = '';
-        const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
+        if (downloadResolvers[fileName]) {
+            downloadResolvers[fileName]();
+            delete downloadResolvers[fileName];
         }
-        return btoa(binary);
+
+        showToast(`Đã tải xong tệp [${fileName}] về máy!`, 'success');
     }
 
     function formatBytes(bytes) {

@@ -1501,19 +1501,127 @@ body {
 .progress-bar-fill {
     width: 0%;
     height: 100%;
-    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo));
+    background: linear-gradient(90deg, #ec4899, #f43f5e, #38bdf8);
     transition: width 0.15s ease;
 }
 
-.progress-label {
-    display: block;
-    text-align: right;
+.progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 4px;
+    margin-top: 6px;
 }
 
-/* Remote Files List */
+.progress-speed {
+    color: #38bdf8;
+    font-weight: 600;
+}
+
+.progress-label {
+    color: var(--text-muted);
+}
+
+/* Multi-file Upload Queue */
+.upload-queue-container {
+    margin-top: 14px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+}
+
+.queue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.btn-clear-queue {
+    background: none;
+    border: none;
+    color: #f43f5e;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.btn-clear-queue:hover {
+    background: rgba(244, 63, 94, 0.15);
+}
+
+.upload-queue-list {
+    max-height: 160px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.queue-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.queue-file-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    max-width: 65%;
+}
+
+.queue-file-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.queue-file-size {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.queue-file-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.queue-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.queue-badge.pending { background: rgba(255, 255, 255, 0.1); color: var(--text-muted); }
+.queue-badge.uploading { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+.queue-badge.success { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.queue-badge.error { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+.btn-queue-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+}
+.btn-queue-remove:hover { color: #f43f5e; }
+
+/* Remote Files List & Batch Download */
 .file-list-header {
     display: flex;
     justify-content: space-between;
@@ -1521,6 +1629,38 @@ body {
     font-size: 12px;
     color: var(--text-muted);
     margin-bottom: 10px;
+}
+
+.dl-select-all-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+.dl-select-all-box input {
+    cursor: pointer;
+    accent-color: #ec4899;
+}
+
+.dl-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-batch-dl {
+    background: linear-gradient(135deg, #ec4899, #f43f5e);
+    border: none;
+    color: white;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+.btn-batch-dl:hover {
+    transform: translateY(-1px);
 }
 
 .btn-refresh-files {
@@ -1548,6 +1688,17 @@ body {
     padding: 10px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     font-size: 13px;
+}
+
+.remote-file-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.remote-file-left input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: #ec4899;
 }
 
 .remote-file-item:last-child {

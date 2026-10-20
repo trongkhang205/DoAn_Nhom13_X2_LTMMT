@@ -32,6 +32,17 @@ public class WebInputHandler {
     private FileOutputStream currentUploadFos;
     private String currentUploadName;
 
+    public static class FileUploadContext {
+        public String fileId;
+        public String fileName;
+        public long expectedSize;
+        public long receivedBytes;
+        public FileOutputStream fos;
+        public File targetFile;
+        public long startTime;
+    }
+    private final Map<String, FileUploadContext> activeUploads = new java.util.concurrent.ConcurrentHashMap<>();
+
     @FunctionalInterface
     public interface TextMessageSender {
         void send(String text) throws IOException;
@@ -71,7 +82,15 @@ public class WebInputHandler {
      * Phân tích và thực thi lệnh JSON từ trình duyệt
      */
     public void handleMessage(String json) {
-        if (json == null || json.trim().isEmpty() || robot == null) return;
+        if (json == null || json.trim().isEmpty()) return;
+
+        // Xử lý Siêu Tốc (Fast Path) cho chunk tệp tin không qua Regex
+        if (json.startsWith("{\"type\":\"file_upload_chunk\"")) {
+            handleFastFileUploadChunk(json);
+            return;
+        }
+
+        if (robot == null) return;
 
         Map<String, String> data = parseSimpleJson(json);
         String type = data.get("type");
@@ -143,7 +162,7 @@ public class WebInputHandler {
                     break;
 
                 case "file_upload_end":
-                    handleFileUploadEnd();
+                    handleFileUploadEnd(data);
                     break;
 
                 case "file_list":
@@ -261,39 +280,152 @@ public class WebInputHandler {
     private void handleFileUploadStart(Map<String, String> data) {
         String rawName = data.get("name");
         if (rawName == null) return;
+        String fileId = data.get("fileId");
+        if (fileId == null) fileId = "file_" + System.currentTimeMillis();
+        long size = 0;
+        try {
+            if (data.containsKey("size")) {
+                size = Long.parseLong(data.get("size"));
+            }
+        } catch (Exception ignored) {}
+
         String safeName = new File(rawName).getName();
         try {
-            if (currentUploadFos != null) {
-                try { currentUploadFos.close(); } catch (Exception ignored) {}
-            }
             if (!RECEIVED_DIR.exists()) {
                 RECEIVED_DIR.mkdirs();
             }
             File targetFile = new File(RECEIVED_DIR, safeName);
-            currentUploadFos = new FileOutputStream(targetFile);
+            FileOutputStream fos = new FileOutputStream(targetFile);
+
+            FileUploadContext ctx = new FileUploadContext();
+            ctx.fileId = fileId;
+            ctx.fileName = safeName;
+            ctx.expectedSize = size;
+            ctx.receivedBytes = 0;
+            ctx.fos = fos;
+            ctx.targetFile = targetFile;
+            ctx.startTime = System.currentTimeMillis();
+
+            activeUploads.put(fileId, ctx);
+            currentUploadFos = fos;
             currentUploadName = safeName;
+
             if (logger != null) {
-                logger.appendLog("WebInputHandler: Bắt đầu tiếp nhận tệp tin [" + safeName + "] từ Client...");
+                logger.appendLog("WebInputHandler: Bắt đầu nhận tệp [" + safeName + "] (" + formatFileSize(size) + ") [ID: " + fileId + "]...");
             }
+
+            String resp = "{\"type\":\"file_upload_ready\",\"fileId\":\"" + escapeJson(fileId) + "\",\"name\":\"" + escapeJson(safeName) + "\"}";
+            sendText(resp);
         } catch (Exception e) {
             if (logger != null) logger.appendLog("Lỗi mở tệp lưu: " + e.getMessage());
+            String err = "{\"type\":\"file_upload_error\",\"fileId\":\"" + escapeJson(fileId) + "\",\"message\":\"Lỗi mở tệp lưu: " + escapeJson(e.getMessage()) + "\"}";
+            sendText(err);
+        }
+    }
+
+    private void handleFastFileUploadChunk(String json) {
+        try {
+            int dataIdx = json.indexOf("\"data\":");
+            if (dataIdx == -1) return;
+            int startQuote = json.indexOf('"', dataIdx + 7);
+            if (startQuote == -1) return;
+            int endQuote = json.lastIndexOf('"');
+            if (endQuote <= startQuote) return;
+            String b64 = json.substring(startQuote + 1, endQuote);
+
+            String fileId = null;
+            int idIdx = json.indexOf("\"fileId\":");
+            if (idIdx != -1) {
+                int q1 = json.indexOf('"', idIdx + 9);
+                if (q1 != -1) {
+                    int q2 = json.indexOf('"', q1 + 1);
+                    if (q2 != -1) {
+                        fileId = json.substring(q1 + 1, q2);
+                    }
+                }
+            }
+
+            FileUploadContext ctx = null;
+            if (fileId != null) {
+                ctx = activeUploads.get(fileId);
+            }
+            if (ctx == null && !activeUploads.isEmpty()) {
+                ctx = activeUploads.values().iterator().next();
+            }
+
+            if (ctx != null && ctx.fos != null) {
+                byte[] bytes = Base64.getDecoder().decode(b64);
+                ctx.fos.write(bytes);
+                ctx.receivedBytes += bytes.length;
+            } else if (currentUploadFos != null) {
+                byte[] bytes = Base64.getDecoder().decode(b64);
+                currentUploadFos.write(bytes);
+            }
+        } catch (Exception e) {
+            if (logger != null) logger.appendLog("Lỗi fast chunk: " + e.getMessage());
         }
     }
 
     private void handleFileUploadChunk(Map<String, String> data) {
+        String fileId = data.get("fileId");
         String b64 = data.get("data");
-        if (currentUploadFos != null && b64 != null) {
-            try {
+        if (b64 == null) return;
+
+        try {
+            FileUploadContext ctx = fileId != null ? activeUploads.get(fileId) : null;
+            if (ctx == null && !activeUploads.isEmpty()) {
+                ctx = activeUploads.values().iterator().next();
+            }
+
+            if (ctx != null && ctx.fos != null) {
+                byte[] bytes = Base64.getDecoder().decode(b64);
+                ctx.fos.write(bytes);
+                ctx.receivedBytes += bytes.length;
+            } else if (currentUploadFos != null) {
                 byte[] bytes = Base64.getDecoder().decode(b64);
                 currentUploadFos.write(bytes);
-            } catch (Exception e) {
-                if (logger != null) logger.appendLog("Lỗi ghi chunk tệp: " + e.getMessage());
             }
+        } catch (Exception e) {
+            if (logger != null) logger.appendLog("Lỗi ghi chunk: " + e.getMessage());
         }
     }
 
-    private void handleFileUploadEnd() {
-        if (currentUploadFos != null) {
+    private void handleFileUploadEnd(Map<String, String> data) {
+        String fileId = data != null ? data.get("fileId") : null;
+        FileUploadContext ctx = null;
+        if (fileId != null) {
+            ctx = activeUploads.remove(fileId);
+        } else if (!activeUploads.isEmpty()) {
+            ctx = activeUploads.values().iterator().next();
+            activeUploads.remove(ctx.fileId);
+        }
+
+        if (ctx != null) {
+            try {
+                if (ctx.fos != null) {
+                    ctx.fos.flush();
+                    ctx.fos.close();
+                }
+                long took = Math.max(1, System.currentTimeMillis() - ctx.startTime);
+                double mb = ctx.receivedBytes / (1024.0 * 1024.0);
+                double speed = (mb / (took / 1000.0));
+                String speedStr = String.format(Locale.US, "%.1f MB/s", speed);
+
+                if (logger != null) {
+                    logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + ctx.fileName + "] (" + formatFileSize(ctx.receivedBytes) + ") với tốc độ " + speedStr + " -> Lưu tại: " + ctx.targetFile.getAbsolutePath());
+                }
+
+                String resp = "{\"type\":\"file_upload_success\",\"fileId\":\"" + escapeJson(ctx.fileId) + "\",\"name\":\"" + escapeJson(ctx.fileName) + "\",\"size\":" + ctx.receivedBytes + ",\"speed\":\"" + speedStr + "\"}";
+                sendText(resp);
+            } catch (Exception e) {
+                if (logger != null) logger.appendLog("Lỗi đóng tệp: " + e.getMessage());
+            } finally {
+                if (currentUploadFos == ctx.fos) {
+                    currentUploadFos = null;
+                    currentUploadName = null;
+                }
+            }
+        } else if (currentUploadFos != null) {
             try {
                 currentUploadFos.flush();
                 currentUploadFos.close();
@@ -302,12 +434,9 @@ public class WebInputHandler {
                 }
                 String resp = "{\"type\":\"file_upload_success\",\"name\":\"" + escapeJson(currentUploadName) + "\"}";
                 sendText(resp);
-            } catch (Exception e) {
-                if (logger != null) logger.appendLog("Lỗi đóng tệp: " + e.getMessage());
-            } finally {
-                currentUploadFos = null;
-                currentUploadName = null;
-            }
+            } catch (Exception ignored) {}
+            currentUploadFos = null;
+            currentUploadName = null;
         }
     }
 
@@ -344,13 +473,14 @@ public class WebInputHandler {
         String safeName = new File(rawName).getName();
         File f = new File(RECEIVED_DIR, safeName);
         if (!f.exists() || !f.isFile()) {
-            sendText("{\"type\":\"file_download_error\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
+            sendText("{\"type\":\"file_download_error\",\"name\":\"" + escapeJson(safeName) + "\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
             return;
         }
 
         new Thread(() -> {
             try (FileInputStream fis = new FileInputStream(f)) {
-                byte[] buffer = new byte[32 * 1024];
+                // Tăng bộ đệm lên 64KB và giảm sleep còn 2ms để đạt tốc độ tối đa
+                byte[] buffer = new byte[64 * 1024];
                 long totalSize = f.length();
                 int totalChunks = (int) Math.ceil((double) totalSize / buffer.length);
                 if (totalChunks == 0) totalChunks = 1;
@@ -368,17 +498,24 @@ public class WebInputHandler {
                             ",\"data\":\"" + b64 + "\"}";
                     sendText(msg);
                     chunkIndex++;
-                    Thread.sleep(10);
+                    Thread.sleep(2);
                 }
 
                 sendText("{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");
                 if (logger != null) {
-                    logger.appendLog("WebInputHandler: Đã truyền xong tệp [" + safeName + "] về Client.");
+                    logger.appendLog("WebInputHandler: Đã truyền xong tệp [" + safeName + "] (" + formatFileSize(totalSize) + ") về Client.");
                 }
             } catch (Exception e) {
                 if (logger != null) logger.appendLog("Lỗi truyền tải tệp: " + e.getMessage());
             }
-        }, "FileDownload-Thread").start();
+        }, "FileDownload-Thread-" + safeName).start();
+    }
+
+    public static String formatFileSize(long bytes) {
+        if (bytes <= 0) return "0 B";
+        final String[] units = new String[] { "B", "KB", "MB", "GB" };
+        int digitGroups = (int) (Math.log10(bytes) / Math.log10(1024));
+        return String.format(Locale.US, "%.1f %s", bytes / Math.pow(1024, digitGroups), units[digitGroups]);
     }
 
     private int getButtonMask(int button) {

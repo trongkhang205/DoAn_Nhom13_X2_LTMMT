@@ -89,12 +89,22 @@ public class GatewayConnector implements WebSocket.Listener {
         }
     }
 
+    private volatile boolean binarySendBusy = false;
+
+    public boolean isBinaryBusy() {
+        return binarySendBusy;
+    }
+
     public void safeSendBinary(byte[] payload) throws IOException {
         synchronized (sendLock) {
             if (webSocket != null && !webSocket.isOutputClosed()) {
+                binarySendBusy = true;
                 try {
-                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).whenComplete((ws, ex) -> {
+                        binarySendBusy = false;
+                    });
                 } catch (Exception e) {
+                    binarySendBusy = false;
                     throw new IOException("WebSocket sendBinary lỗi: " + e.getMessage(), e);
                 }
             }
@@ -246,6 +256,7 @@ public class GatewayConnector implements WebSocket.Listener {
         WebInputHandler.TextMessageSender textSender = this::safeSendText;
 
         this.screenCaster = new WebScreenCaster(frameSender, logger);
+        this.screenCaster.setBusyChecker(this::isBinaryBusy);
         this.inputHandler = new WebInputHandler(textSender, logger, screenCaster);
         new Thread(screenCaster, "Gateway-ScreenCaster-Thread").start();
     }

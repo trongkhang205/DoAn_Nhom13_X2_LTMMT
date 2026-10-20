@@ -79,6 +79,12 @@ public class WebScreenCaster implements Runnable {
         }
     }
 
+    private java.util.function.BooleanSupplier busyChecker = null;
+
+    public void setBusyChecker(java.util.function.BooleanSupplier checker) {
+        this.busyChecker = checker;
+    }
+
     public void setQuality(float newQuality) {
         this.quality = Math.max(0.2f, Math.min(0.95f, newQuality));
         synchronized (writerLock) {
@@ -114,29 +120,41 @@ public class WebScreenCaster implements Runnable {
         this.prevPixels = new int[W * H];
         ByteArrayOutputStream baos = new ByteArrayOutputStream(128 * 1024);
 
+        // Tái sử dụng BufferedImage và Graphics2D để triệt tiêu Garbage Collection (250MB/s)
+        BufferedImage reusableRgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+        Graphics2D gReusable = reusableRgbImage.createGraphics();
+
         while (running && !Thread.currentThread().isInterrupted()) {
             long startTime = System.currentTimeMillis();
             int frameDelay = 1000 / Math.max(1, targetFps);
+
+            // Bỏ qua khung hình nếu đường truyền mạng đang bận gửi khung trước (Tránh nghẽn hàng đợi & drop FPS)
+            if (busyChecker != null && busyChecker.getAsBoolean()) {
+                try {
+                    Thread.sleep(Math.max(4, frameDelay / 2));
+                } catch (InterruptedException ie) {
+                    break;
+                }
+                continue;
+            }
 
             try {
                 // 1. Chụp màn hình máy chủ
                 BufferedImage screenshot = robot.createScreenCapture(screenRect);
                 if (!running) break;
 
-                // Chuẩn hoá ảnh về TYPE_INT_RGB để truy xuất bộ nhớ pixel cực nhanh
+                // Chuẩn hoá ảnh về TYPE_INT_RGB tái sử dụng buffer
                 BufferedImage rgbImage;
                 if (screenshot.getType() == BufferedImage.TYPE_INT_RGB) {
                     rgbImage = screenshot;
                 } else {
-                    rgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
-                    Graphics2D g = rgbImage.createGraphics();
-                    g.drawImage(screenshot, 0, 0, null);
-                    g.dispose();
+                    gReusable.drawImage(screenshot, 0, 0, null);
+                    rgbImage = reusableRgbImage;
                 }
 
                 int[] currPixels = ((DataBufferInt) rgbImage.getRaster().getDataBuffer()).getData();
 
-                // 2. Thuật toán phát hiện vùng thay đổi (Dirty Rectangle Detection)
+                // 2. Thuật toán phát hiện vùng thay đổi Siêu Tốc (9-point Sample Diffing)
                 int minBx = Integer.MAX_VALUE, minBy = Integer.MAX_VALUE;
                 int maxBx = -1, maxBy = -1;
                 int changedBlocks = 0;
@@ -150,19 +168,35 @@ public class WebScreenCaster implements Runnable {
                         int endX = Math.min(startX + blockSize, W);
 
                         boolean blockChanged = false;
-                        // Kiểm tra các điểm mẫu trong khối (4 góc và tâm)
                         int midX = (startX + endX) / 2;
                         int midY = (startY + endY) / 2;
 
-                        if (currPixels[startY * W + startX] != prevPixels[startY * W + startX] ||
-                            currPixels[(endY - 1) * W + (endX - 1)] != prevPixels[(endY - 1) * W + (endX - 1)] ||
-                            currPixels[midY * W + midX] != prevPixels[midY * W + midX]) {
+                        // 9 điểm mẫu trọng yếu: 4 góc, tâm, và 4 trung điểm biên
+                        int p0 = startY * W + startX;
+                        int p1 = startY * W + midX;
+                        int p2 = startY * W + (endX - 1);
+                        int p3 = midY * W + startX;
+                        int p4 = midY * W + midX;
+                        int p5 = midY * W + (endX - 1);
+                        int p6 = (endY - 1) * W + startX;
+                        int p7 = (endY - 1) * W + midX;
+                        int p8 = (endY - 1) * W + (endX - 1);
+
+                        if (currPixels[p0] != prevPixels[p0] ||
+                            currPixels[p1] != prevPixels[p1] ||
+                            currPixels[p2] != prevPixels[p2] ||
+                            currPixels[p3] != prevPixels[p3] ||
+                            currPixels[p4] != prevPixels[p4] ||
+                            currPixels[p5] != prevPixels[p5] ||
+                            currPixels[p6] != prevPixels[p6] ||
+                            currPixels[p7] != prevPixels[p7] ||
+                            currPixels[p8] != prevPixels[p8]) {
                             blockChanged = true;
                         } else {
-                            // Quét chi tiết theo bước nhảy 4 pixel
-                            for (int y = startY; y < endY; y += 4) {
+                            // Quét bước nhảy 8 pixel để phát hiện văn bản hoặc đường kẻ mảnh
+                            for (int y = startY; y < endY; y += 8) {
                                 int rowOffset = y * W;
-                                for (int x = startX; x < endX; x += 4) {
+                                for (int x = startX; x < endX; x += 8) {
                                     if (currPixels[rowOffset + x] != prevPixels[rowOffset + x]) {
                                         blockChanged = true;
                                         break;
@@ -182,12 +216,12 @@ public class WebScreenCaster implements Runnable {
                     }
                 }
 
-                // 3. Nếu màn hình hoàn toàn tĩnh (không thay đổi)
+                // 3. Nếu màn hình tĩnh: duy trì nhịp gửi tối thiểu (tối đa bỏ qua 2 khung hình)
+                // Đảm bảo client không bao giờ bị tụt FPS xuống 0 - 4 FPS
                 frameCounter++;
                 if (changedBlocks == 0) {
                     idleFrameCounter++;
-                    // Bỏ qua gửi để tiết kiệm 100% băng thông, giữ nhịp mỗi 60 frames
-                    if (idleFrameCounter < 60) {
+                    if (idleFrameCounter < 2) {
                         Thread.sleep(frameDelay);
                         continue;
                     }

@@ -201,28 +201,36 @@ public class WebSocketHelper {
      * Browser sẽ nhận header báo payload = hàng trăm Petabytes → đóng kết nối ngay.
      */
     private static void writeFrame(OutputStream out, int opcode, byte[] payload) throws IOException {
-        ByteArrayOutputStream frameBuffer = new ByteArrayOutputStream(payload.length + 10);
         int b1 = 0x80 | (opcode & 0x0F); // FIN bit set
-        frameBuffer.write(b1);
-
         int len = payload.length;
+        byte[] header;
+        int headerLen;
+
         if (len <= 125) {
-            frameBuffer.write(len);
+            header = new byte[2];
+            header[0] = (byte) b1;
+            header[1] = (byte) len;
+            headerLen = 2;
         } else if (len <= 65535) {
-            frameBuffer.write(126);
-            frameBuffer.write((len >> 8) & 0xFF);
-            frameBuffer.write(len & 0xFF);
+            header = new byte[4];
+            header[0] = (byte) b1;
+            header[1] = (byte) 126;
+            header[2] = (byte) ((len >> 8) & 0xFF);
+            header[3] = (byte) (len & 0xFF);
+            headerLen = 4;
         } else {
-            frameBuffer.write(127);
-            // PHẢI cast sang long trước khi shift! int >>> 56 = int >>> (56%32) = int >>> 24 → SAI.
+            header = new byte[10];
+            header[0] = (byte) b1;
+            header[1] = (byte) 127;
             long longLen = (long) len;
             for (int i = 7; i >= 0; i--) {
-                frameBuffer.write((int) ((longLen >>> (i * 8)) & 0xFF));
+                header[2 + (7 - i)] = (byte) ((longLen >>> (i * 8)) & 0xFF);
             }
+            headerLen = 10;
         }
 
-        frameBuffer.write(payload);
-        out.write(frameBuffer.toByteArray());
+        out.write(header, 0, headerLen);
+        out.write(payload);
         out.flush();
     }
 
