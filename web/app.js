@@ -36,6 +36,15 @@
     const btnClearLogs = document.getElementById('btnClearLogs');
     const serverLogsConsole = document.getElementById('serverLogsConsole');
 
+    // Tunnel 4G Controls
+    const btnToggleTunnel = document.getElementById('btnToggleTunnel');
+    const lblTunnelPower = document.getElementById('lblTunnelPower');
+    const badgeTunnelStatus = document.getElementById('badgeTunnelStatus');
+    const boxTunnelLink = document.getElementById('boxTunnelLink');
+    const dispTunnelUrl = document.getElementById('dispTunnelUrl');
+    const btnCopyTunnelUrl = document.getElementById('btnCopyTunnelUrl');
+    const btnOpenTunnelUrl = document.getElementById('btnOpenTunnelUrl');
+
     // View 3: Client Connect
     const tabModeLan = document.getElementById('tabModeLan');
     const tabModeInternet = document.getElementById('tabModeInternet');
@@ -177,6 +186,42 @@
             navServerStatusText.textContent = 'Server: Tắt Chia Sẻ';
         }
 
+        // Cập nhật trạng thái Cầu Nối Tunnel 4G
+        if (btnToggleTunnel) {
+            if (info.isTunnelActive) {
+                btnToggleTunnel.className = 'btn-power tunnel-power-btn active';
+                if (lblTunnelPower) lblTunnelPower.textContent = 'TẮT CẦU NỐI 4G';
+                if (boxTunnelLink) boxTunnelLink.style.display = 'block';
+
+                if (info.tunnelUrl && info.tunnelUrl.trim() !== '') {
+                    if (badgeTunnelStatus) {
+                        badgeTunnelStatus.className = 'tunnel-status-badge tunnel-badge-on';
+                        badgeTunnelStatus.textContent = 'Đang Hoạt Động';
+                    }
+                    if (dispTunnelUrl) dispTunnelUrl.textContent = info.tunnelUrl;
+                    if (btnOpenTunnelUrl) {
+                        btnOpenTunnelUrl.href = info.tunnelUrl;
+                        btnOpenTunnelUrl.style.display = 'inline-flex';
+                    }
+                } else {
+                    if (badgeTunnelStatus) {
+                        badgeTunnelStatus.className = 'tunnel-status-badge tunnel-badge-pending';
+                        badgeTunnelStatus.textContent = 'Đang Lấy URL...';
+                    }
+                    if (dispTunnelUrl) dispTunnelUrl.textContent = 'Đang khởi tạo đường truyền Cloudflare... Vui lòng chờ 3s';
+                    if (btnOpenTunnelUrl) btnOpenTunnelUrl.style.display = 'none';
+                }
+            } else {
+                btnToggleTunnel.className = 'btn-power tunnel-power-btn off';
+                if (lblTunnelPower) lblTunnelPower.textContent = 'BẬT CẦU NỐI 4G';
+                if (badgeTunnelStatus) {
+                    badgeTunnelStatus.className = 'tunnel-status-badge tunnel-badge-off';
+                    badgeTunnelStatus.textContent = 'Chưa Kích Hoạt';
+                }
+                if (boxTunnelLink) boxTunnelLink.style.display = 'none';
+            }
+        }
+
         // Tự động điền trước cho Client Form
         if (!clientTargetIp.value) {
             clientTargetIp.value = info.ip !== '127.0.0.1' ? info.ip : '127.0.0.1';
@@ -271,6 +316,64 @@
         copyTextToClipboard(dispWebDirectUrl.textContent, 'Đã sao chép đường dẫn Web vào bộ nhớ tạm');
     });
 
+    // Bật / Tắt Cầu Nối Internet 4G (Cloudflare Tunnel)
+    let tunnelPollTimer = null;
+    if (btnToggleTunnel) {
+        btnToggleTunnel.addEventListener('click', async () => {
+            btnToggleTunnel.disabled = true;
+            const isCurrentlyActive = btnToggleTunnel.classList.contains('active');
+            if (lblTunnelPower) {
+                lblTunnelPower.textContent = isCurrentlyActive ? 'Đang tắt cầu nối...' : 'Đang khởi chạy...';
+            }
+
+            try {
+                const res = await fetch('/api/tunnel-toggle', { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (cachedServerInfo) {
+                        cachedServerInfo.isTunnelActive = data.isTunnelActive;
+                        cachedServerInfo.tunnelUrl = data.tunnelUrl;
+                        updateServerInfoUI(cachedServerInfo);
+                    } else {
+                        fetchServerInfo();
+                    }
+
+                    showToast(data.message || (data.isTunnelActive ? 'Cầu nối Internet 4G đã bật!' : 'Đã tắt cầu nối Internet 4G'), 'info');
+                    fetchServerLogs();
+
+                    // Nếu vừa bật và chưa có URL, hẹn giờ poll liên tục vài lần để lấy URL nhanh nhất
+                    if (data.isTunnelActive && !data.tunnelUrl) {
+                        if (tunnelPollTimer) clearInterval(tunnelPollTimer);
+                        let pollAttempts = 0;
+                        tunnelPollTimer = setInterval(async () => {
+                            pollAttempts++;
+                            await fetchServerInfo();
+                            if ((cachedServerInfo && cachedServerInfo.tunnelUrl) || pollAttempts > 8) {
+                                clearInterval(tunnelPollTimer);
+                                tunnelPollTimer = null;
+                            }
+                        }, 1800);
+                    }
+                } else {
+                    showToast('Lỗi khi chuyển trạng thái Cầu Nối', 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('Không thể kết nối API máy chủ', 'error');
+            } finally {
+                btnToggleTunnel.disabled = false;
+            }
+        });
+    }
+
+    if (btnCopyTunnelUrl) {
+        btnCopyTunnelUrl.addEventListener('click', () => {
+            if (dispTunnelUrl) {
+                copyTextToClipboard(dispTunnelUrl.textContent, 'Đã sao chép liên kết Internet 4G vào bộ nhớ tạm');
+            }
+        });
+    }
+
     // Logs Polling
     async function fetchServerLogs() {
         try {
@@ -284,6 +387,11 @@
                     // Server đã xóa logs → đồng bộ UI về trống
                     serverLogsConsole.innerHTML = '<div class="log-line text-muted">[Chưa có nhật ký]</div>';
                 }
+            }
+
+            // Nếu Tunnel đang bật mà chưa có URL, tự động cập nhật ServerInfo
+            if (cachedServerInfo && cachedServerInfo.isTunnelActive && !cachedServerInfo.tunnelUrl) {
+                fetchServerInfo();
             }
         } catch (e) {}
     }

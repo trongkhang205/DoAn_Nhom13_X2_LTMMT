@@ -182,6 +182,51 @@
                 </div>
 
                 <div class="server-grid">
+                    <!-- Khung Cầu Nối Internet 4G (Cloudflare Tunnel) -->
+                    <div class="server-tunnel-card" id="serverTunnelCard">
+                        <div class="tunnel-card-header">
+                            <div class="tunnel-header-left">
+                                <div class="tunnel-badge-wrap">
+                                    <span class="tunnel-pill-tag">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10"></circle>
+                                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                        </svg>
+                                        CLOUDFLARE ARGO TUNNEL
+                                    </span>
+                                    <span class="tunnel-status-badge tunnel-badge-off" id="badgeTunnelStatus">Chưa Kích Hoạt</span>
+                                </div>
+                                <h3 class="tunnel-card-title">Cầu Nối Internet 4G & Khác Mạng</h3>
+                                <p class="tunnel-card-desc">Bật cầu nối để điều khiển máy từ xa qua 4G/Internet mà không cần cài đặt Router hay mở cổng modem (No Port Forwarding).</p>
+                            </div>
+                            <div class="tunnel-header-right">
+                                <button class="btn-power tunnel-power-btn off" id="btnToggleTunnel">
+                                    <span class="power-icon" id="iconTunnelDot">●</span>
+                                    <span id="lblTunnelPower">BẬT CẦU NỐI 4G</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Khung hiển thị đường dẫn Internet khi Tunnel đang chạy -->
+                        <div class="tunnel-active-body" id="boxTunnelLink" style="display: none;">
+                            <div class="tunnel-url-group">
+                                <label class="tunnel-label">Đường dẫn truy cập toàn cầu (Public URL):</label>
+                                <div class="link-preview-box highlight-tunnel-box">
+                                    <span class="link-text mono-text" id="dispTunnelUrl">Đang khởi tạo đường truyền Cloudflare... Vui lòng chờ 3s</span>
+                                    <div class="tunnel-btn-actions">
+                                        <button class="btn-mini btn-action" id="btnCopyTunnelUrl" title="Sao chép liên kết">Sao Chép Link</button>
+                                        <a class="btn-mini btn-open-link" id="btnOpenTunnelUrl" href="#" target="_blank" rel="noopener noreferrer" title="Mở liên kết trên tab mới">Mở Web ↗</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="tunnel-tips-row">
+                                <span class="tip-icon">🌐</span>
+                                <span class="tip-text">Các thiết bị 4G hoặc mạng ngoài chỉ cần truy cập link trên hoặc dùng <strong>Mã Thiết Bị (Device ID)</strong> ở ô bên dưới để kết nối tức thì.</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Khung thông số cấu hình -->
                     <div class="server-config-card">
                         <h3 class="card-section-title">Thông Tin Kết Nối & Bảo Mật</h3>

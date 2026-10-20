@@ -16,6 +16,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Nền tảng Máy Chủ Web Toàn Diện (Full Web Platform Engine - RFC 6455):
@@ -50,6 +52,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
     private GatewayConnector gatewayConnector;
     private final Map<String, Integer> failedAttempts = new ConcurrentHashMap<>();
     private final Map<String, Long> lockoutExpiry = new ConcurrentHashMap<>();
+
+    // Cầu nối Internet & Cloudflare Tunnel tích hợp 1-Click
+    private Process tunnelProcess;
+    private Process gatewayProcess;
+    private volatile boolean isTunnelActive = false;
+    private volatile String currentTunnelUrl = "";
 
     public WebRemoteServer(int port, String password, ServerLogger externalLogger) {
         this.port = port;
@@ -122,6 +130,79 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return InetAddress.getLocalHost().getHostAddress();
         } catch (Exception e) {
             return "127.0.0.1";
+        }
+    }
+
+    public synchronized void startInternetTunnel() {
+        if (isTunnelActive) return;
+        isTunnelActive = true;
+        currentTunnelUrl = "";
+        appendLog("CloudTunnel: Đang kết nối mạng đám mây Cloudflare Argo...");
+
+        new Thread(() -> {
+            try {
+                ensureGatewayRunning();
+
+                File cfExe = new File("cloudflared.exe");
+                if (!cfExe.exists()) {
+                    cfExe = new File("..", "cloudflared.exe");
+                }
+                if (!cfExe.exists()) {
+                    appendLog("CloudTunnel: Không tìm thấy file cloudflared.exe!");
+                    isTunnelActive = false;
+                    return;
+                }
+
+                ProcessBuilder pb = new ProcessBuilder(cfExe.getAbsolutePath(), "tunnel", "--url", "http://localhost:3000");
+                pb.redirectErrorStream(true);
+                tunnelProcess = pb.start();
+
+                BufferedReader reader = new BufferedReader(new InputStreamReader(tunnelProcess.getInputStream()));
+                String line;
+                Pattern urlPattern = Pattern.compile("https://[a-zA-Z0-9-]+\\.trycloudflare\\.com");
+                while ((line = reader.readLine()) != null) {
+                    Matcher m = urlPattern.matcher(line);
+                    if (m.find()) {
+                        currentTunnelUrl = m.group(0);
+                        appendLog("CloudTunnel: ĐÃ KÍCH HOẠT! Link Internet 4G: " + currentTunnelUrl);
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                appendLog("CloudTunnel lỗi: " + e.getMessage());
+                isTunnelActive = false;
+            }
+        }, "CloudTunnel-Thread").start();
+    }
+
+    public synchronized void stopInternetTunnel() {
+        isTunnelActive = false;
+        currentTunnelUrl = "";
+        if (tunnelProcess != null) {
+            try {
+                tunnelProcess.destroyForcibly();
+                tunnelProcess = null;
+                appendLog("CloudTunnel: Đã tắt cầu nối Internet 4G.");
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private synchronized void ensureGatewayRunning() {
+        try {
+            Socket test = new Socket("127.0.0.1", 3000);
+            test.close();
+        } catch (Exception notRunning) {
+            try {
+                File gwDir = new File("gateway");
+                if (!gwDir.exists()) gwDir = new File("..", "gateway");
+                ProcessBuilder pb = new ProcessBuilder("node", "server.js");
+                pb.directory(gwDir);
+                gatewayProcess = pb.start();
+                appendLog("WebRemoteServer: Tự động khởi động Cloud Gateway trên cổng 3000.");
+                Thread.sleep(1500);
+            } catch (Exception e) {
+                appendLog("Lỗi khởi chạy Gateway: " + e.getMessage());
+            }
         }
     }
 
@@ -215,12 +296,25 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             String json = "{\"ip\":\"" + localIp + "\",\"port\":" + port 
                     + ",\"password\":\"" + password + "\",\"isSharingEnabled\":" + isSharingEnabled 
                     + ",\"activeClients\":" + activeClients.get()
-                    + ",\"deviceId\":\"" + deviceId + "\",\"formattedDeviceId\":\"" + GatewayConnector.formatDeviceId(deviceId) + "\"}";
+                    + ",\"deviceId\":\"" + deviceId + "\",\"formattedDeviceId\":\"" + GatewayConnector.formatDeviceId(deviceId) + "\""
+                    + ",\"isTunnelActive\":" + isTunnelActive
+                    + ",\"tunnelUrl\":\"" + (currentTunnelUrl != null ? currentTunnelUrl : "") + "\"}";
             sendJsonResponse(out, json);
             return;
         }
 
-        // 2. API: Sinh mật khẩu mới
+        // 2. API: Bật/Tắt Cầu Nối Internet 4G (Cloudflare Tunnel Tích Hợp)
+        if (uri.startsWith("/api/tunnel-toggle")) {
+            if (isTunnelActive) {
+                stopInternetTunnel();
+            } else {
+                startInternetTunnel();
+            }
+            sendJsonResponse(out, "{\"success\":true,\"isTunnelActive\":" + isTunnelActive + ",\"tunnelUrl\":\"" + (currentTunnelUrl != null ? currentTunnelUrl : "") + "\"}");
+            return;
+        }
+
+        // 3. API: Sinh mật khẩu mới
         if (uri.startsWith("/api/server-genpass")) {
             this.password = generateRandomPassword();
             appendLog("Đã đổi mật khẩu máy chủ mới: " + this.password);
@@ -228,7 +322,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
-        // 3. API: Bật/Tắt chia sẻ màn hình
+        // 4. API: Bật/Tắt chia sẻ màn hình
         if (uri.startsWith("/api/server-toggle")) {
             this.isSharingEnabled = !this.isSharingEnabled;
             appendLog("Chế độ chia sẻ màn hình đã " + (isSharingEnabled ? "BẬT" : "TẮT"));
