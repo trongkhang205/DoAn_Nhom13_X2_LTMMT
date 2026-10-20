@@ -59,7 +59,11 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         this.deviceId = generateRandomDeviceId();
         
         // Tự động kết nối tới Cloud Relay Gateway ở chế độ nền
-        this.gatewayConnector = new GatewayConnector("ws://localhost:3000", deviceId, this.password, this);
+        String gwUrl = System.getenv("GATEWAY_URL");
+        if (gwUrl == null || gwUrl.trim().isEmpty()) {
+            gwUrl = System.getProperty("gateway.url", "ws://localhost:3000");
+        }
+        this.gatewayConnector = new GatewayConnector(gwUrl, deviceId, this.password, this);
         this.gatewayConnector.start();
 
         appendLog("Khởi tạo Web Remote Platform trên cổng " + port + ". IP: " + localIp);

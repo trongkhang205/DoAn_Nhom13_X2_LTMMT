@@ -42,6 +42,7 @@
     const groupDeviceId = document.getElementById('groupDeviceId');
     const groupIpPort = document.getElementById('groupIpPort');
     const clientTargetDeviceId = document.getElementById('clientTargetDeviceId');
+    const clientGatewayUrl = document.getElementById('clientGatewayUrl');
     const clientTargetIp = document.getElementById('clientTargetIp');
     const clientTargetPort = document.getElementById('clientTargetPort');
     const clientTargetPass = document.getElementById('clientTargetPass');
@@ -444,8 +445,21 @@
         setConnectingButton(true);
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const gatewayHost = window.location.hostname || 'localhost';
-        const gatewayWsUrl = `${protocol}//${gatewayHost}:3000`;
+        let gatewayWsUrl;
+
+        const customGw = clientGatewayUrl ? clientGatewayUrl.value.trim() : '';
+        if (customGw) {
+            if (customGw.startsWith('ws://') || customGw.startsWith('wss://')) {
+                gatewayWsUrl = customGw;
+            } else {
+                gatewayWsUrl = `${protocol}//${customGw.replace(/^https?:\/\//, '')}`;
+            }
+        } else if (window.location.port === '3000' || window.location.port === '8080') {
+            gatewayWsUrl = `${protocol}//${window.location.hostname}:3000`;
+        } else {
+            // Trường hợp chạy qua Cloud Public Domain (Render, Railway, tunnel)
+            gatewayWsUrl = `${protocol}//${window.location.host}`;
+        }
 
         try {
             if (ws) {
@@ -456,7 +470,7 @@
                 ws = null;
             }
 
-            showToast(`Đang kết nối tới Cloud Relay Gateway (${gatewayHost}:3000)...`, 'info');
+            showToast(`Đang kết nối tới Cloud Relay Gateway (${gatewayWsUrl})...`, 'info');
             ws = new WebSocket(gatewayWsUrl);
             ws.binaryType = 'arraybuffer';
 

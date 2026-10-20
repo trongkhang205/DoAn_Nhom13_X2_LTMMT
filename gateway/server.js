@@ -84,15 +84,26 @@ wss.on('connection', (ws, req) => {
     console.log(`[+] Kết nối mới từ: ${req.socket.remoteAddress} (Path: ${url.pathname})`);
 
     ws.on('message', (data, isBinary) => {
-        // Nếu là Binary Stream: Chuyển tiếp trực tiếp sang đầu kia mà không giải mã
+        // Nếu là Binary Stream (ảnh màn hình nén):
         if (isBinary) {
-            if (pairedWs && pairedWs.readyState === WebSocket.OPEN) {
+            if (role === 'host' && currentDeviceId) {
+                // Host gửi màn hình -> chuyển tiếp tới tất cả máy khách đang kết nối tới Host này
+                const host = hosts.get(currentDeviceId);
+                if (host && host.clients) {
+                    host.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(data, { binary: true });
+                        }
+                    });
+                }
+            } else if (role === 'client' && pairedWs && pairedWs.readyState === WebSocket.OPEN) {
+                // Client gửi binary (nếu có) -> chuyển tiếp tới Host
                 pairedWs.send(data, { binary: true });
             }
             return;
         }
 
-        // Nếu là Text JSON Frame
+        // Nếu là Text JSON Frame:
         try {
             const text = data.toString('utf-8');
             const msg = JSON.parse(text);
@@ -140,8 +151,19 @@ wss.on('connection', (ws, req) => {
                 return;
             }
 
-            // 3. Chuyển tiếp thông điệp thông thường
-            if (pairedWs && pairedWs.readyState === WebSocket.OPEN) {
+            // 3. Chuyển tiếp thông điệp thông thường (auth_result, chuột, bàn phím, stats)
+            if (role === 'host' && currentDeviceId) {
+                // Host phản hồi auth_result hoặc ping -> gửi tới các client
+                const host = hosts.get(currentDeviceId);
+                if (host && host.clients) {
+                    host.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(text);
+                        }
+                    });
+                }
+            } else if (role === 'client' && pairedWs && pairedWs.readyState === WebSocket.OPEN) {
+                // Client gửi chuột, bàn phím -> gửi tới Host
                 pairedWs.send(text);
             }
         } catch (e) {
