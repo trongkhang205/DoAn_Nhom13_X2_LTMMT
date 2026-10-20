@@ -5,14 +5,20 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.io.OutputStream;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Xử lý các lệnh điều khiển nhận từ Web Client (chuột, bàn phím, clipboard, ping/pong).
+ * Xử lý các lệnh điều khiển nhận từ Web Client:
+ * - Chuột (Move, Click, Double-click, Right-click, Wheel, Drag)
+ * - Cảm ứng điện thoại (Touch mapping)
+ * - Bàn phím (W3C codes sang VK Codes)
+ * - Đồng bộ Clipboard hai chiều
+ * - Truyền tải tệp tin hai chiều (Upload / Download / File List)
+ * - Tự động co dãn chất lượng và tốc độ khung hình (Adaptive Quality)
  */
 public class WebInputHandler {
 
@@ -20,6 +26,11 @@ public class WebInputHandler {
     private final ServerLogger logger;
     private final WebScreenCaster screenCaster;
     private Robot robot;
+
+    // Thư mục lưu trữ tệp tin truyền nhận
+    private static final File RECEIVED_DIR = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
+    private FileOutputStream currentUploadFos;
+    private String currentUploadName;
 
     public WebInputHandler(OutputStream out, ServerLogger logger, WebScreenCaster screenCaster) {
         this.out = out;
@@ -29,7 +40,9 @@ public class WebInputHandler {
             this.robot = new Robot();
             this.robot.setAutoDelay(2);
         } catch (AWTException e) {
-            logger.appendLog("WebInputHandler: Không thể khởi tạo Robot: " + e.getMessage());
+            if (logger != null) {
+                logger.appendLog("WebInputHandler: Không thể khởi tạo Robot: " + e.getMessage());
+            }
         }
     }
 
@@ -76,7 +89,9 @@ public class WebInputHandler {
                         String text = unescapeJson(data.get("text"));
                         StringSelection sel = new StringSelection(text);
                         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
-                        logger.appendLog("WebInputHandler: Đã nhận nội dung Clipboard từ Web Client.");
+                        if (logger != null) {
+                            logger.appendLog("WebInputHandler: Đã nhận nội dung Clipboard từ Web Client.");
+                        }
                     }
                     break;
 
@@ -97,11 +112,32 @@ public class WebInputHandler {
                     WebSocketHelper.sendTextFrame(out, pong);
                     break;
 
+                // ===== TRUYỀN TỆP TIN HAI CHIỀU =====
+                case "file_upload_start":
+                    handleFileUploadStart(data);
+                    break;
+
+                case "file_upload_chunk":
+                    handleFileUploadChunk(data);
+                    break;
+
+                case "file_upload_end":
+                    handleFileUploadEnd();
+                    break;
+
+                case "file_list":
+                    handleFileList();
+                    break;
+
+                case "file_download_req":
+                    handleFileDownload(data);
+                    break;
+
                 default:
                     break;
             }
         } catch (Exception ex) {
-            // Đảm bảo ngoại lệ từ 1 thao tác không làm crash luồng kết nối
+            // Đảm bảo không crash luồng xử lý
         }
     }
 
@@ -197,6 +233,133 @@ public class WebInputHandler {
                 } catch (Exception ignored) {}
                 break;
         }
+    }
+
+    // ===== XỬ LÝ TRUYỀN TỆP TIN =====
+
+    private void handleFileUploadStart(Map<String, String> data) {
+        String rawName = data.get("name");
+        if (rawName == null) return;
+        String safeName = new File(rawName).getName();
+        try {
+            if (currentUploadFos != null) {
+                try { currentUploadFos.close(); } catch (Exception ignored) {}
+            }
+            if (!RECEIVED_DIR.exists()) {
+                RECEIVED_DIR.mkdirs();
+            }
+            File targetFile = new File(RECEIVED_DIR, safeName);
+            currentUploadFos = new FileOutputStream(targetFile);
+            currentUploadName = safeName;
+            if (logger != null) {
+                logger.appendLog("WebInputHandler: Bắt đầu tiếp nhận tệp tin [" + safeName + "] từ Client...");
+            }
+        } catch (Exception e) {
+            if (logger != null) logger.appendLog("Lỗi mở tệp lưu: " + e.getMessage());
+        }
+    }
+
+    private void handleFileUploadChunk(Map<String, String> data) {
+        String b64 = data.get("data");
+        if (currentUploadFos != null && b64 != null) {
+            try {
+                byte[] bytes = Base64.getDecoder().decode(b64);
+                currentUploadFos.write(bytes);
+            } catch (Exception e) {
+                if (logger != null) logger.appendLog("Lỗi ghi chunk tệp: " + e.getMessage());
+            }
+        }
+    }
+
+    private void handleFileUploadEnd() {
+        if (currentUploadFos != null) {
+            try {
+                currentUploadFos.flush();
+                currentUploadFos.close();
+                if (logger != null) {
+                    logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + currentUploadName + "] lưu tại: " + RECEIVED_DIR.getAbsolutePath());
+                }
+                String resp = "{\"type\":\"file_upload_success\",\"name\":\"" + escapeJson(currentUploadName) + "\"}";
+                WebSocketHelper.sendTextFrame(out, resp);
+            } catch (Exception e) {
+                if (logger != null) logger.appendLog("Lỗi đóng tệp: " + e.getMessage());
+            } finally {
+                currentUploadFos = null;
+                currentUploadName = null;
+            }
+        }
+    }
+
+    private void handleFileList() {
+        try {
+            if (!RECEIVED_DIR.exists()) {
+                RECEIVED_DIR.mkdirs();
+            }
+            File[] files = RECEIVED_DIR.listFiles();
+            StringBuilder sb = new StringBuilder("{\"type\":\"file_list_resp\",\"files\":[");
+            if (files != null) {
+                boolean first = true;
+                for (File f : files) {
+                    if (f.isFile()) {
+                        if (!first) sb.append(",");
+                        first = false;
+                        sb.append("{\"name\":\"").append(escapeJson(f.getName()))
+                          .append("\",\"size\":").append(f.length())
+                          .append(",\"date\":\"").append(new SimpleDateFormat("dd/MM/yyyy HH:mm").format(new Date(f.lastModified())))
+                          .append("\"}");
+                    }
+                }
+            }
+            sb.append("]}");
+            WebSocketHelper.sendTextFrame(out, sb.toString());
+        } catch (Exception e) {
+            if (logger != null) logger.appendLog("Lỗi quét danh sách tệp: " + e.getMessage());
+        }
+    }
+
+    private void handleFileDownload(Map<String, String> data) {
+        String rawName = data.get("name");
+        if (rawName == null) return;
+        String safeName = new File(rawName).getName();
+        File f = new File(RECEIVED_DIR, safeName);
+        if (!f.exists() || !f.isFile()) {
+            try {
+                WebSocketHelper.sendTextFrame(out, "{\"type\":\"file_download_error\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
+            } catch (Exception ignored) {}
+            return;
+        }
+
+        new Thread(() -> {
+            try (FileInputStream fis = new FileInputStream(f)) {
+                byte[] buffer = new byte[32 * 1024];
+                long totalSize = f.length();
+                int totalChunks = (int) Math.ceil((double) totalSize / buffer.length);
+                if (totalChunks == 0) totalChunks = 1;
+                int chunkIndex = 0;
+                int bytesRead;
+
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    byte[] chunkBytes = buffer;
+                    if (bytesRead < buffer.length) {
+                        chunkBytes = Arrays.copyOf(buffer, bytesRead);
+                    }
+                    String b64 = Base64.getEncoder().encodeToString(chunkBytes);
+                    String msg = "{\"type\":\"file_download_chunk\",\"name\":\"" + escapeJson(safeName) +
+                            "\",\"chunk\":" + chunkIndex + ",\"total\":" + totalChunks +
+                            ",\"data\":\"" + b64 + "\"}";
+                    WebSocketHelper.sendTextFrame(out, msg);
+                    chunkIndex++;
+                    Thread.sleep(10);
+                }
+
+                WebSocketHelper.sendTextFrame(out, "{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");
+                if (logger != null) {
+                    logger.appendLog("WebInputHandler: Đã truyền xong tệp [" + safeName + "] về Client.");
+                }
+            } catch (Exception e) {
+                if (logger != null) logger.appendLog("Lỗi truyền tải tệp: " + e.getMessage());
+            }
+        }, "FileDownload-Thread").start();
     }
 
     private int getButtonMask(int button) {
