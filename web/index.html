@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hệ Thống Điều Khiển Máy Tính Từ Xa - Nền Tảng Web (Nhóm 13)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="dark-theme">
+    <!-- Hiệu ứng hào quang nền -->
+    <div class="ambient-glow glow-top"></div>
+    <div class="ambient-glow glow-bottom"></div>
+
+    <!-- Thanh điều hướng chính trên cùng (App Navigation Bar) -->
+    <header class="app-navbar" id="appNavbar">
+        <div class="nav-brand">
+            <span class="pulse-indicator"></span>
+            <div class="brand-text">
+                <span class="brand-title">LUMINA REMOTE WEBSITE</span>
+                <span class="brand-sub">Đồ Án Lập Trình Mạng Máy Tính Của Nhóm 13 (X.2)</span>
+            </div>
+        </div>
+
+        <nav class="nav-links">
+            <button class="nav-item active" data-view="viewMenu" id="navMenu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                <span>Menu Chính</span>
+            </button>
+            <button class="nav-item" data-view="viewServer" id="navServer">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+                <span>Máy Chủ (Server)</span>
+            </button>
+            <button class="nav-item" data-view="viewClient" id="navClient">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                <span>Máy Khách (Client)</span>
+            </button>
+        </nav>
+
+        <div class="nav-status">
+            <span class="server-badge" id="navServerBadge">
+                <span class="status-dot dot-green" id="serverStateDot"></span>
+                <span id="navServerStatusText">Server: Sẵn Sàng (Port 8080)</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- NỘI DUNG CHÍNH (CONTAINER CÁC VIEW) -->
+    <main class="main-content" id="mainContent">
+
+        <!-- ================= VIEW 1: MENU CHÍNH (LAUNCHER) ================= -->
+        <section class="view-panel active" id="viewMenu">
+            <div class="menu-hero">
+                <h1 class="hero-title">HỆ THỐNG ĐIỀU KHIỂN MÁY TÍNH TỪ XA</h1>
+                <p class="hero-subtitle">Mô phỏng kiến trúc hoạt động hoàn toàn trên trình duyệt Web</p>
+            </div>
+
+            <div class="launcher-grid">
+                <!-- Card 1: Máy Chủ -->
+                <div class="launcher-card" id="cardLaunchServer">
+                    <div class="card-icon-wrapper icon-server">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                        </svg>
+                    </div>
+                    <div class="card-body">
+                        <span class="card-tag tag-server">MÁY BỊ ĐIỀU KHIỂN</span>
+                        <h2 class="card-title">Khởi Chạy Máy Chủ (Server)</h2>
+                        <p class="card-desc">Cấu hình cho phép máy tính này phát màn hình và tiếp nhận quyền điều khiển
+                            từ xa. Cung cấp IP và Mật khẩu kết nối.</p>
+                        <ul class="card-features">
+                            <li>✓ Hiển thị IP LAN & Mật khẩu bảo mật</li>
+                            <li>✓ Bật/Tắt chia sẻ màn hình an toàn</li>
+                            <li>✓ Nhật ký kết nối (Logs) thời gian thực</li>
+                        </ul>
+                    </div>
+                    <button class="card-btn btn-go-server" id="btnGoServer">
+                        <span>MỞ BẢNG ĐIỀU KHIỂN SERVER</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Card 2: Máy Khách -->
+                <div class="launcher-card" id="cardLaunchClient">
+                    <div class="card-icon-wrapper icon-client">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </div>
+                    <div class="card-body">
+                        <span class="card-tag tag-client">MÁY ĐI ĐIỀU KHIỂN</span>
+                        <h2 class="card-title">Khởi Chạy Máy Khách (Client)</h2>
+                        <p class="card-desc">Nhập địa chỉ IP, cổng và mật khẩu để xem màn hình và điều khiển máy tính
+                            khác từ xa qua mạng LAN hoặc Localhost.</p>
+                        <ul class="card-features">
+                            <li>✓ Tự động quét tìm máy chủ trong mạng LAN</li>
+                            <li>✓ Điều khiển chuột và bàn phím mượt mà</li>
+                            <li>✓ Tùy chỉnh chất lượng hình ảnh & FPS</li>
+                        </ul>
+                    </div>
+                    <button class="card-btn btn-go-client" id="btnGoClient">
+                        <span>MỞ BẢNG KẾT NỐI CLIENT</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Card 3: Test Localhost -->
+                <div class="launcher-card card-accent" id="cardLaunchTest">
+                    <div class="card-icon-wrapper icon-test">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="17 1 21 5 17 9"></polyline>
+                            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                            <polyline points="7 23 3 19 7 15"></polyline>
+                            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                        </svg>
+                    </div>
+                    <div class="card-body">
+                        <span class="card-tag tag-test">CHẠY KIỂM THỬ NHANH</span>
+                        <h2 class="card-title">Chạy Test Localhost</h2>
+                        <p class="card-desc">Tự động kết nối với chính máy này (Loopback) để kiểm tra ngay tính năng
+                            truyền màn hình và chuột/bàn phím mà không cần gõ mật khẩu.</p>
+                        <ul class="card-features">
+                            <li>✓ Kiểm thử tức thì chỉ với 1 click</li>
+                            <li>✓ Tự động điền IP 127.0.0.1 và Password</li>
+                            <li>✓ Trải nghiệm màn hình điều khiển Canvas</li>
+                        </ul>
+                    </div>
+                    <button class="card-btn btn-go-test" id="btnGoTest">
+                        <span>BẮT ĐẦU TEST LOCALHOST ⚡</span>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= VIEW 2: MÁY CHỦ (SERVER DASHBOARD TRÊN WEB) ================= -->
+        <section class="view-panel" id="viewServer">
+            <div class="panel-container">
+                <div class="panel-header">
+                    <div>
+                        <h2>MÁY CHỦ ĐIỀU KHIỂN TỪ XA (SERVER)</h2>
+                        <p class="panel-subtitle">Quản lý trạng thái chia sẻ màn hình và bảo mật máy này</p>
+                    </div>
+                    <div class="server-power-toggle">
+                        <button class="btn-power active" id="btnToggleServerShare">
+                            <span class="power-icon">●</span>
+                            <span id="lblServerPower">ĐANG BẬT CHIA SẺ</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="server-grid">
+                    <!-- Khung thông số cấu hình -->
+                    <div class="server-config-card">
+                        <h3 class="card-section-title">Thông Tin Kết Nối & Bảo Mật</h3>
+
+                        <div class="info-row">
+                            <label>IP Máy này (LAN):</label>
+                            <div class="info-box">
+                                <span class="mono-text" id="dispServerIp">127.0.0.1</span>
+                                <button class="btn-mini" id="btnCopyIp" title="Sao chép IP">Sao chép</button>
+                            </div>
+                        </div>
+
+                        <div class="info-row">
+                            <label>Cổng Web (Port):</label>
+                            <div class="info-box">
+                                <span class="mono-text" id="dispServerPort">8080</span>
+                                <span class="badge-mini">HTTP & WS</span>
+                            </div>
+                        </div>
+
+                        <div class="info-row">
+                            <label>Mật khẩu xác thực:</label>
+                            <div class="info-box password-box">
+                                <span class="mono-text highlight-pass" id="dispServerPass">------</span>
+                                <button class="btn-mini btn-action" id="btnGenNewPass"
+                                    title="Tạo mật khẩu ngẫu nhiên mới">Đổi Pass</button>
+                            </div>
+                        </div>
+
+                        <div class="info-row">
+                            <label>Đang kết nối:</label>
+                            <div class="info-box">
+                                <span id="dispActiveClients">0 máy khách</span>
+                            </div>
+                        </div>
+
+                        <div class="web-direct-link">
+                            <label>Đường dẫn truy cập từ máy khác:</label>
+                            <div class="link-preview-box">
+                                <span class="link-text mono-text" id="dispWebDirectUrl">http://127.0.0.1:8080</span>
+                                <button class="btn-mini" id="btnCopyWebUrl">Copy Link</button>
+                            </div>
+                            <small class="tip-text">💡 Các máy khác trong cùng Wi-Fi chỉ cần mở link này trên trình
+                                duyệt để điều khiển.</small>
+                        </div>
+                    </div>
+
+                    <!-- Khung Nhật Ký Kết Nối (Logs) -->
+                    <div class="server-logs-card">
+                        <div class="logs-header">
+                            <h3 class="card-section-title">Nhật Ký Máy Chủ (Server Logs)</h3>
+                            <button class="btn-mini" id="btnClearLogs">Xóa log</button>
+                        </div>
+                        <div class="logs-console" id="serverLogsConsole">
+                            <div class="log-line text-muted">[Sẵn sàng] Máy chủ Web Platform đang chạy...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= VIEW 3: MÁY KHÁCH (CLIENT DASHBOARD TRÊN WEB) ================= -->
+        <section class="view-panel" id="viewClient">
+            <div class="panel-container max-w-640">
+                <div class="panel-header text-center">
+                    <div>
+                        <h2>KẾT NỐI MÁY TÍNH TỪ XA (CLIENT)</h2>
+                        <p class="panel-subtitle">Nhập thông tin máy cần điều khiển hoặc quét tự động trong mạng LAN</p>
+                    </div>
+                </div>
+
+                <div class="client-connect-card">
+                    <div class="form-group">
+                        <div class="label-with-action">
+                            <label for="clientTargetIp">Địa chỉ IP Máy Chủ:</label>
+                            <button class="btn-link" id="btnScanLan">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    class="icon-inline">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+                                </svg>
+                                <span>Quét tìm trong LAN</span>
+                            </button>
+                        </div>
+                        <div class="input-wrapper">
+                            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                            </svg>
+                            <input type="text" id="clientTargetIp" placeholder="127.0.0.1 hoặc 192.168.1.x"
+                                spellcheck="false" autocomplete="off">
+                        </div>
+                    </div>
+
+                    <!-- Khung danh sách máy quét được -->
+                    <div class="discovered-servers" id="discoveredContainer" style="display: none;">
+                        <span class="discovered-title">Máy chủ tìm thấy trong mạng:</span>
+                        <div class="discovered-list" id="discoveredList"></div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group flex-1">
+                            <label for="clientTargetPort">Cổng (Port):</label>
+                            <div class="input-wrapper">
+                                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path
+                                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                                    </path>
+                                </svg>
+                                <input type="number" id="clientTargetPort" value="8080">
+                            </div>
+                        </div>
+
+                        <div class="form-group flex-1">
+                            <label for="clientTargetPass">Mật khẩu xác thực:</label>
+                            <div class="input-wrapper">
+                                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <input type="password" id="clientTargetPass" placeholder="6 ký tự mật khẩu">
+                                <button type="button" class="btn-toggle-eye" id="btnToggleClientEye">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                        <circle cx="12" cy="12" r="3"></circle>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="client-action">
+                        <button id="btnClientStartConnect" class="btn-primary">
+                            <span class="btn-spinner" id="btnConnectSpinner"></span>
+                            <span id="btnConnectLabel">KẾT NỐI NGAY (CONNECT)</span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                class="btn-arrow">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div id="clientErrorMsg" class="auth-error-msg"></div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ================= VIEW 4: MÀN HÌNH ĐIỀU KHIỂN REMOTE VIEWER (FULLSCREEN CANVAS) ================= -->
+    <div id="remoteViewerModal" class="viewer-modal">
+        <!-- Floating Toolbar -->
+        <header id="floatingToolbar" class="floating-toolbar">
+            <div class="toolbar-drag-handle" title="Kéo hoặc rê chuột để ẩn/hiện thanh công cụ">
+                <span class="drag-bar"></span>
+            </div>
+
+            <div class="toolbar-content">
+                <div class="toolbar-section stats-group">
+                    <div class="stat-item" title="Độ trễ khứ hồi RTT">
+                        <span class="stat-dot dot-green" id="latencyDot"></span>
+                        <span class="stat-label">RTT:</span>
+                        <span class="stat-val" id="valLatency">-- ms</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item" title="Khung hình trên giây">
+                        <span class="stat-label">FPS:</span>
+                        <span class="stat-val" id="valFps">--</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-val" id="valResolution">1920x1080</span>
+                    </div>
+                </div>
+
+                <div class="toolbar-section controls-group">
+                    <!-- Quyền tương tác -->
+                    <button id="btnToggleControl" class="tool-btn active" title="Bật/Tắt quyền tương tác chuột & phím">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path
+                                d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 14.93V18a1 1 0 0 1-2 0v-1.07A7 7 0 0 1 5.07 11H4a1 1 0 0 1 0-2h1.07A7 7 0 0 1 11 3.07V2a1 1 0 0 1 2 0v1.07A7 7 0 0 1 18.93 9H20a1 1 0 0 1 0 2h-1.07A7 7 0 0 1 13 16.93z">
+                            </path>
+                        </svg>
+                        <span id="lblControlMode">Đang Điều Khiển</span>
+                    </button>
+
+                    <!-- Chất lượng -->
+                    <div class="dropdown-wrapper">
+                        <button class="tool-btn" id="btnQualityDropdown">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 20v-6M6 20V10M18 20V4"></path>
+                            </svg>
+                            <span id="lblQuality">Tiêu Chuẩn (65%)</span>
+                        </button>
+                        <div class="dropdown-menu" id="menuQuality">
+                            <button class="menu-item" data-quality="0.40">Tiết Kiệm Băng Thông (40%)</button>
+                            <button class="menu-item active" data-quality="0.65">Tiêu Chuẩn (65%)</button>
+                            <button class="menu-item" data-quality="0.85">Chất Lượng Cao HD (85%)</button>
+                        </div>
+                    </div>
+
+                    <!-- Phím Nhanh -->
+                    <div class="dropdown-wrapper">
+                        <button class="tool-btn" id="btnSpecialKeys">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
+                                <line x1="6" y1="8" x2="6" y2="8"></line>
+                                <line x1="10" y1="8" x2="10" y2="8"></line>
+                                <line x1="14" y1="8" x2="14" y2="8"></line>
+                                <line x1="18" y1="8" x2="18" y2="8"></line>
+                            </svg>
+                            <span>Phím Nhanh</span>
+                        </button>
+                        <div class="dropdown-menu" id="menuSpecialKeys">
+                            <button class="menu-item" data-cmd="win_key">Phím Windows (Start)</button>
+                            <button class="menu-item" data-cmd="alt_tab">Phím Alt + Tab</button>
+                            <button class="menu-item" data-cmd="escape">Phím Esc</button>
+                            <button class="menu-item" data-cmd="enter">Phím Enter</button>
+                        </div>
+                    </div>
+
+                    <!-- Clipboard -->
+                    <button class="tool-btn" id="btnOpenClipboard" title="Đồng bộ bộ nhớ tạm">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                        </svg>
+                        <span>Bộ Nhớ Tạm</span>
+                    </button>
+
+                    <!-- Toàn màn hình -->
+                    <button class="tool-btn" id="btnFullscreen" title="Toàn màn hình">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path
+                                d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                            </path>
+                        </svg>
+                    </button>
+
+                    <!-- Co Dãn / 1:1 -->
+                    <button class="tool-btn" id="btnScaleMode">
+                        <span id="lblScaleMode">Co Dãn</span>
+                    </button>
+
+                    <!-- Nút Thoát / Ngắt kết nối -->
+                    <button class="tool-btn btn-danger" id="btnCloseViewer">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        <span>Rời Khỏi Màn Hình</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Canvas Viewport -->
+        <main class="canvas-viewport" id="canvasViewport">
+            <canvas id="remoteCanvas" tabindex="0"></canvas>
+            <div id="canvasLoading" class="canvas-loading">
+                <div class="loader-ring"></div>
+                <p>Đang đồng bộ luồng màn hình...</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Clipboard -->
+    <div id="clipboardModal" class="modal-backdrop">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Đồng Bộ Bộ Nhớ Tạm (Clipboard)</h3>
+                <button class="btn-close-modal" id="btnCloseClipboard">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-tip">Nhập văn bản cần dán vào máy từ xa, hoặc lấy văn bản đang có trên máy từ xa về máy
+                    bạn:</p>
+                <textarea id="txtClipboard" rows="6" placeholder="Nhập văn bản tại đây..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="btnGetRemoteClip">Lấy Từ Máy Từ Xa</button>
+                <button class="btn-primary" id="btnSendLocalClip">Gửi Tới Máy Từ Xa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Khay Toast thông báo -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "remote-desktop-relay-gateway",
+  "version": "1.0.0",
+  "description": "Central Cloud Relay & Web Platform for Remote Desktop (Nhom 13)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
