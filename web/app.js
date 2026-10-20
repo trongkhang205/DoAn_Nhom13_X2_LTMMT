@@ -488,6 +488,23 @@
                 if (rtt < 60) latencyDot.className = 'stat-dot dot-green';
                 else if (rtt < 160) latencyDot.className = 'stat-dot dot-yellow';
                 else latencyDot.className = 'stat-dot dot-red';
+
+                // Tự động thích ứng chất lượng theo độ trễ RTT nếu người dùng chưa chọn thủ công
+                if (!window.isManualQualitySelected) {
+                    if (rtt > 180 && window.currentAdaptiveQuality !== 0.40) {
+                        window.currentAdaptiveQuality = 0.40;
+                        sendJson({ type: 'quality', value: '0.40' });
+                        sendJson({ type: 'target_fps', value: '20' });
+                    } else if (rtt < 60 && window.currentAdaptiveQuality !== 0.75) {
+                        window.currentAdaptiveQuality = 0.75;
+                        sendJson({ type: 'quality', value: '0.75' });
+                        sendJson({ type: 'target_fps', value: '35' });
+                    } else if (rtt >= 60 && rtt <= 180 && window.currentAdaptiveQuality !== 0.60) {
+                        window.currentAdaptiveQuality = 0.60;
+                        sendJson({ type: 'quality', value: '0.60' });
+                        sendJson({ type: 'target_fps', value: '28' });
+                    }
+                }
             } else if (msg.type === 'clipboard_data') {
                 txtClipboard.value = msg.text || '';
                 showToast('Đã nhận nội dung Clipboard từ máy từ xa', 'info');
@@ -501,8 +518,30 @@
         if (!isAuthenticated) return;
 
         const dataView = new DataView(arrayBuffer);
-        const w = dataView.getInt32(0);
-        const h = dataView.getInt32(4);
+        let frameType = 0;
+        let w, h, targetX = 0, targetY = 0, targetW, targetH;
+        let jpegBytes;
+
+        // Nhận diện Header 33-byte (hỗ trợ Delta Frame vi sai)
+        if (arrayBuffer.byteLength >= 33 && (dataView.getUint8(0) === 0 || dataView.getUint8(0) === 1)) {
+            frameType = dataView.getUint8(0);
+            w = dataView.getInt32(1);
+            h = dataView.getInt32(5);
+            targetX = dataView.getInt32(9);
+            targetY = dataView.getInt32(13);
+            targetW = dataView.getInt32(17);
+            targetH = dataView.getInt32(21);
+            jpegBytes = arrayBuffer.slice(33);
+        } else {
+            // Tương thích ngược với Header 16-byte cũ
+            w = dataView.getInt32(0);
+            h = dataView.getInt32(4);
+            targetX = 0;
+            targetY = 0;
+            targetW = w;
+            targetH = h;
+            jpegBytes = arrayBuffer.slice(16);
+        }
 
         if (w !== serverWidth || h !== serverHeight) {
             serverWidth = w;
@@ -512,19 +551,19 @@
             valResolution.textContent = `${w}x${h}`;
         }
 
-        const jpegBytes = arrayBuffer.slice(16);
         const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
 
         createImageBitmap(blob)
             .then(bitmap => {
-                ctx.drawImage(bitmap, 0, 0);
+                // Vẽ đúng vùng thay đổi (Delta Frame) hoặc vẽ toàn bộ khung nhìn (Full Frame)
+                ctx.drawImage(bitmap, targetX, targetY, targetW, targetH);
                 bitmap.close();
 
                 if (canvasLoading.style.display !== 'none') {
                     canvasLoading.style.display = 'none';
                 }
 
-                // FPS
+                // Đo FPS thời gian thực
                 frameCount++;
                 const now = performance.now();
                 if (now - lastFpsTime >= 1000) {
@@ -593,12 +632,13 @@
 
     menuQuality.querySelectorAll('.menu-item').forEach(item => {
         item.addEventListener('click', () => {
+            window.isManualQualitySelected = true;
             const qualityVal = parseFloat(item.getAttribute('data-quality'));
             menuQuality.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
             item.classList.add('active');
             lblQuality.textContent = item.textContent.split(' ')[0] + ` (${Math.round(qualityVal * 100)}%)`;
             sendJson({ type: 'quality', value: qualityVal });
-            showToast(`Đã đổi chất lượng hình ảnh: ${Math.round(qualityVal * 100)}%`, 'info');
+            showToast(`Đã đổi chất lượng hình ảnh: ${Math.round(qualityVal * 100)}% (Thủ công)`, 'info');
         });
     });
 
