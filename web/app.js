@@ -508,6 +508,22 @@
             } else if (msg.type === 'clipboard_data') {
                 txtClipboard.value = msg.text || '';
                 showToast('Đã nhận nội dung Clipboard từ máy từ xa', 'info');
+            } else if (msg.type === 'file_upload_success') {
+                showToast(`Đã gửi tệp [${msg.name}] lên máy chủ thành công!`, 'success');
+                if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+                if (lblUploadProgress) lblUploadProgress.textContent = 'Hoàn tất 100%!';
+                setTimeout(() => {
+                    if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
+                    if (btnStartUpload) btnStartUpload.disabled = false;
+                }, 1500);
+            } else if (msg.type === 'file_list_resp') {
+                renderRemoteFilesList(msg.files || []);
+            } else if (msg.type === 'file_download_chunk') {
+                handleDownloadChunk(msg);
+            } else if (msg.type === 'file_download_complete') {
+                finalizeFileDownload(msg.name);
+            } else if (msg.type === 'file_download_error') {
+                showToast(msg.message || 'Lỗi tải tệp!', 'error');
             }
         } catch (e) {
             console.error('Error parsing text frame:', e);
@@ -790,6 +806,307 @@
             keyCode: e.keyCode
         });
     });
+
+    // ================= FILE TRANSFER 2-WAY (QUẢN LÝ TỆP TIN HAI CHIỀU) =================
+    const btnFileTransfer = document.getElementById('btnFileTransfer');
+    const fileModal = document.getElementById('fileModal');
+    const btnCloseFileModal = document.getElementById('btnCloseFileModal');
+    const btnCancelFileModal = document.getElementById('btnCancelFileModal');
+    const tabUploadBtn = document.getElementById('tabUploadBtn');
+    const tabDownloadBtn = document.getElementById('tabDownloadBtn');
+    const paneUpload = document.getElementById('paneUpload');
+    const paneDownload = document.getElementById('paneDownload');
+    const fileDropZone = document.getElementById('fileDropZone');
+    const fileInputUpload = document.getElementById('fileInputUpload');
+    const fileInfoBox = document.getElementById('fileInfoBox');
+    const lblSelectedFileName = document.getElementById('lblSelectedFileName');
+    const lblSelectedFileSize = document.getElementById('lblSelectedFileSize');
+    const uploadProgressContainer = document.getElementById('uploadProgressContainer');
+    const uploadProgressBar = document.getElementById('uploadProgressBar');
+    const lblUploadProgress = document.getElementById('lblUploadProgress');
+    const btnStartUpload = document.getElementById('btnStartUpload');
+    const btnRefreshFiles = document.getElementById('btnRefreshFiles');
+    const remoteFilesList = document.getElementById('remoteFilesList');
+
+    let selectedUploadFile = null;
+    let downloadFileChunks = {};
+
+    if (btnFileTransfer && fileModal) {
+        btnFileTransfer.addEventListener('click', () => {
+            fileModal.classList.add('active');
+        });
+
+        const closeFileModal = () => fileModal.classList.remove('active');
+        if (btnCloseFileModal) btnCloseFileModal.addEventListener('click', closeFileModal);
+        if (btnCancelFileModal) btnCancelFileModal.addEventListener('click', closeFileModal);
+
+        tabUploadBtn.addEventListener('click', () => {
+            tabUploadBtn.classList.add('active');
+            tabDownloadBtn.classList.remove('active');
+            paneUpload.classList.add('active');
+            paneDownload.classList.remove('active');
+        });
+
+        tabDownloadBtn.addEventListener('click', () => {
+            tabDownloadBtn.classList.add('active');
+            tabUploadBtn.classList.remove('active');
+            paneDownload.classList.add('active');
+            paneUpload.classList.remove('active');
+            sendJson({ type: 'file_list' });
+        });
+
+        if (btnRefreshFiles) {
+            btnRefreshFiles.addEventListener('click', () => sendJson({ type: 'file_list' }));
+        }
+
+        // Kéo thả tệp tin
+        if (fileDropZone) {
+            fileDropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                fileDropZone.classList.add('dragover');
+            });
+            fileDropZone.addEventListener('dragleave', () => fileDropZone.classList.remove('dragover'));
+            fileDropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                fileDropZone.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) {
+                    selectUploadFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+
+        if (fileInputUpload) {
+            fileInputUpload.addEventListener('change', () => {
+                if (fileInputUpload.files.length > 0) {
+                    selectUploadFile(fileInputUpload.files[0]);
+                }
+            });
+        }
+
+        function selectUploadFile(file) {
+            selectedUploadFile = file;
+            lblSelectedFileName.textContent = file.name;
+            lblSelectedFileSize.textContent = formatBytes(file.size);
+            fileInfoBox.style.display = 'flex';
+            btnStartUpload.disabled = false;
+        }
+
+        // Gửi tệp lên máy chủ
+        if (btnStartUpload) {
+            btnStartUpload.addEventListener('click', () => {
+                if (!selectedUploadFile) return;
+                btnStartUpload.disabled = true;
+                uploadProgressContainer.style.display = 'block';
+                uploadProgressBar.style.width = '0%';
+                lblUploadProgress.textContent = '0%';
+
+                const file = selectedUploadFile;
+                sendJson({ type: 'file_upload_start', name: file.name, size: file.size });
+
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const arrayBuffer = reader.result;
+                    const chunkSize = 32 * 1024; // 32KB
+                    const totalChunks = Math.ceil(arrayBuffer.byteLength / chunkSize) || 1;
+                    let currentChunk = 0;
+
+                    function sendNextChunk() {
+                        if (currentChunk < totalChunks) {
+                            const start = currentChunk * chunkSize;
+                            const end = Math.min(start + chunkSize, arrayBuffer.byteLength);
+                            const chunkSlice = arrayBuffer.slice(start, end);
+                            const b64 = arrayBufferToBase64(chunkSlice);
+
+                            sendJson({ type: 'file_upload_chunk', data: b64 });
+                            currentChunk++;
+                            const percent = Math.round((currentChunk / totalChunks) * 100);
+                            uploadProgressBar.style.width = `${percent}%`;
+                            lblUploadProgress.textContent = `Đang gửi... ${percent}%`;
+                            setTimeout(sendNextChunk, 15);
+                        } else {
+                            sendJson({ type: 'file_upload_end' });
+                        }
+                    }
+                    sendNextChunk();
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+    }
+
+    function renderRemoteFilesList(files) {
+        if (!remoteFilesList) return;
+        if (!files || files.length === 0) {
+            remoteFilesList.innerHTML = '<p class="empty-files-text">Thư mục nhận trên máy chủ hiện đang trống.</p>';
+            return;
+        }
+
+        remoteFilesList.innerHTML = files.map(f => `
+            <div class="remote-file-item">
+                <div class="file-meta">
+                    <span class="file-name">${escapeHtml(f.name)}</span>
+                    <span class="file-sub">${formatBytes(f.size)} • ${escapeHtml(f.date)}</span>
+                </div>
+                <button class="btn-dl-file" data-name="${escapeHtml(f.name)}">⬇ Tải Về</button>
+            </div>
+        `).join('');
+
+        remoteFilesList.querySelectorAll('.btn-dl-file').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const name = btn.getAttribute('data-name');
+                downloadFileChunks[name] = [];
+                sendJson({ type: 'file_download_req', name: name });
+                showToast(`Đang yêu cầu tải tệp [${name}] từ máy chủ...`, 'info');
+            });
+        });
+    }
+
+    function handleDownloadChunk(msg) {
+        if (!downloadFileChunks[msg.name]) downloadFileChunks[msg.name] = [];
+        downloadFileChunks[msg.name].push(msg.data);
+    }
+
+    function finalizeFileDownload(fileName) {
+        const chunks = downloadFileChunks[fileName];
+        if (!chunks) return;
+
+        const byteArrays = [];
+        for (const b64 of chunks) {
+            const binaryString = atob(b64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            byteArrays.push(bytes);
+        }
+
+        const blob = new Blob(byteArrays);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        delete downloadFileChunks[fileName];
+        showToast(`Đã tải xong tệp [${fileName}] về máy của bạn!`, 'success');
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    // ================= MOBILE TOUCH & VIRTUAL KEYBOARD CONTROLS =================
+    const btnMobileKeyboard = document.getElementById('btnMobileKeyboard');
+    const mobileKeyInput = document.getElementById('mobileKeyInput');
+
+    if (btnMobileKeyboard && mobileKeyInput) {
+        btnMobileKeyboard.addEventListener('click', () => {
+            mobileKeyInput.focus();
+            showToast('Đã kích hoạt bàn phím ảo điện thoại', 'info');
+        });
+
+        mobileKeyInput.addEventListener('input', () => {
+            if (!isControlEnabled || !isAuthenticated) return;
+            const text = mobileKeyInput.value;
+            if (text.length > 0) {
+                const char = text.charAt(text.length - 1);
+                sendJson({ type: 'clipboard_set', text: char });
+                sendJson({ type: 'special', command: 'enter' });
+                mobileKeyInput.value = '';
+            }
+        });
+    }
+
+    let touchStartTime = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let longPressTimer = null;
+    let lastTapTime = 0;
+
+    remoteCanvas.addEventListener('touchstart', (e) => {
+        if (!isControlEnabled || !isAuthenticated) return;
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const coords = getCanvasCoordinates({ clientX: touch.clientX, clientY: touch.clientY });
+            touchStartTime = Date.now();
+            touchStartX = coords.x;
+            touchStartY = coords.y;
+
+            // Nhấn giữ 550ms -> Chuột phải
+            longPressTimer = setTimeout(() => {
+                sendJson({ type: 'mouse', action: 'move', x: coords.x, y: coords.y });
+                sendJson({ type: 'mouse', action: 'down', button: 2 });
+                setTimeout(() => sendJson({ type: 'mouse', action: 'up', button: 2 }), 40);
+                showToast('Chuột phải (Nhấn giữ)', 'info');
+                longPressTimer = null;
+            }, 550);
+        }
+    }, { passive: true });
+
+    remoteCanvas.addEventListener('touchmove', (e) => {
+        if (!isControlEnabled || !isAuthenticated) return;
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+
+        if (e.touches.length === 1) {
+            const touch = e.touches[0];
+            const coords = getCanvasCoordinates({ clientX: touch.clientX, clientY: touch.clientY });
+            sendJson({ type: 'mouse', action: 'move', x: coords.x, y: coords.y });
+        } else if (e.touches.length === 2) {
+            // Cuộn trang bằng 2 ngón
+            e.preventDefault();
+            const deltaY = (e.touches[0].clientY - touchStartY) * 0.15;
+            sendJson({ type: 'mouse', action: 'wheel', deltaY: -deltaY });
+        }
+    }, { passive: false });
+
+    remoteCanvas.addEventListener('touchend', (e) => {
+        if (!isControlEnabled || !isAuthenticated) return;
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+
+        const duration = Date.now() - touchStartTime;
+        if (duration < 280) {
+            const now = Date.now();
+            if (now - lastTapTime < 300) {
+                // Double tap -> Double click
+                sendJson({ type: 'mouse', action: 'down', button: 0 });
+                sendJson({ type: 'mouse', action: 'up', button: 0 });
+                setTimeout(() => {
+                    sendJson({ type: 'mouse', action: 'down', button: 0 });
+                    sendJson({ type: 'mouse', action: 'up', button: 0 });
+                }, 50);
+                lastTapTime = 0;
+            } else {
+                // Chạm nhẹ -> Click chuột trái
+                lastTapTime = now;
+                sendJson({ type: 'mouse', action: 'move', x: touchStartX, y: touchStartY });
+                sendJson({ type: 'mouse', action: 'down', button: 0 });
+                setTimeout(() => sendJson({ type: 'mouse', action: 'up', button: 0 }), 30);
+            }
+        }
+    }, { passive: true });
 
     // ================= TOAST NOTIFICATION UTILITY =================
     function showToast(message, type = 'info') {

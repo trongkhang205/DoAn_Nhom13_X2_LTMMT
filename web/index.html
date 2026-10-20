@@ -419,6 +419,33 @@
                         <span>Bộ Nhớ Tạm</span>
                     </button>
 
+                    <!-- Truyền Tệp Tin -->
+                    <button class="tool-btn" id="btnFileTransfer" title="Truyền tải tệp tin 2 chiều">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span>Truyền Tệp</span>
+                    </button>
+
+                    <!-- Bàn Phím Điện Thoại -->
+                    <button class="tool-btn btn-mobile-keyboard" id="btnMobileKeyboard" title="Mở bàn phím ảo điện thoại">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
+                            <line x1="6" y1="8" x2="6.01" y2="8"></line>
+                            <line x1="10" y1="8" x2="10.01" y2="8"></line>
+                            <line x1="14" y1="8" x2="14.01" y2="8"></line>
+                            <line x1="18" y1="8" x2="18.01" y2="8"></line>
+                            <line x1="6" y1="12" x2="6.01" y2="12"></line>
+                            <line x1="10" y1="12" x2="10.01" y2="12"></line>
+                            <line x1="14" y1="12" x2="14.01" y2="12"></line>
+                            <line x1="18" y1="12" x2="18.01" y2="12"></line>
+                            <line x1="7" y1="16" x2="17" y2="16"></line>
+                        </svg>
+                        <span>Bàn Phím</span>
+                    </button>
+
                     <!-- Toàn màn hình -->
                     <button class="tool-btn" id="btnFullscreen" title="Toàn màn hình">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -445,6 +472,8 @@
             </div>
         </header>
 
+        <input type="text" id="mobileKeyInput" style="position:fixed;top:-200px;left:-200px;opacity:0;pointer-events:none;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
         <!-- Canvas Viewport -->
         <main class="canvas-viewport" id="canvasViewport">
             <canvas id="remoteCanvas" tabindex="0"></canvas>
@@ -470,6 +499,61 @@
             <div class="modal-footer">
                 <button class="btn-secondary" id="btnGetRemoteClip">Lấy Từ Máy Từ Xa</button>
                 <button class="btn-primary" id="btnSendLocalClip">Gửi Tới Máy Từ Xa</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Quản Lý & Truyền Tệp Tin Hai Chiều -->
+    <div id="fileModal" class="modal-backdrop">
+        <div class="modal-card file-modal-card">
+            <div class="modal-header">
+                <h3>📁 Truyền Tải Tệp Tin Hai Chiều</h3>
+                <button class="btn-close-modal" id="btnCloseFileModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="file-tabs">
+                    <button class="file-tab-btn active" id="tabUploadBtn">⬆ Gửi Tệp Lên Máy Chủ</button>
+                    <button class="file-tab-btn" id="tabDownloadBtn">⬇ Tải Tệp Về Máy Này</button>
+                </div>
+
+                <!-- Tab Gửi Lên Máy Chủ -->
+                <div class="file-tab-pane active" id="paneUpload">
+                    <div class="drop-zone" id="fileDropZone">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="drop-icon">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p class="drop-text">Kéo thả tệp vào đây hoặc</p>
+                        <label class="btn-choose-file" for="fileInputUpload">Chọn Tệp Tin</label>
+                        <input type="file" id="fileInputUpload" style="display:none;">
+                    </div>
+                    <div class="file-info-box" id="fileInfoBox" style="display:none;">
+                        <span id="lblSelectedFileName">filename.ext</span>
+                        <span id="lblSelectedFileSize">0 KB</span>
+                    </div>
+                    <div class="progress-container" id="uploadProgressContainer" style="display:none;">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="uploadProgressBar"></div>
+                        </div>
+                        <span class="progress-label" id="lblUploadProgress">0%</span>
+                    </div>
+                </div>
+
+                <!-- Tab Tải Về Máy Này -->
+                <div class="file-tab-pane" id="paneDownload">
+                    <div class="file-list-header">
+                        <span>Tệp trên máy chủ (RemoteDesktop_Received):</span>
+                        <button class="btn-refresh-files" id="btnRefreshFiles">🔄 Làm mới</button>
+                    </div>
+                    <div class="remote-files-list" id="remoteFilesList">
+                        <p class="empty-files-text">Đang tải danh sách tệp...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="btnCancelFileModal">Đóng</button>
+                <button class="btn-primary" id="btnStartUpload" disabled>Bắt Đầu Gửi Tệp</button>
             </div>
         </div>
     </div>
