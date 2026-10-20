@@ -64,6 +64,13 @@ public class WebInputHandler {
                     }
                     break;
 
+                case "target_fps":
+                    if (data.containsKey("value") && screenCaster != null) {
+                        int fps = Integer.parseInt(data.get("value"));
+                        screenCaster.setTargetFps(fps);
+                    }
+                    break;
+
                 case "clipboard_set":
                     if (data.containsKey("text")) {
                         String text = unescapeJson(data.get("text"));
