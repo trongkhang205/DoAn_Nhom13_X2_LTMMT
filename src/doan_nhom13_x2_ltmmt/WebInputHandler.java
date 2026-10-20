@@ -32,8 +32,19 @@ public class WebInputHandler {
     private FileOutputStream currentUploadFos;
     private String currentUploadName;
 
+    @FunctionalInterface
+    public interface TextMessageSender {
+        void send(String text) throws IOException;
+    }
+    private final TextMessageSender textSender;
+
     public WebInputHandler(OutputStream out, ServerLogger logger, WebScreenCaster screenCaster) {
-        this.out = out;
+        this((text) -> WebSocketHelper.sendTextFrame(out, text), logger, screenCaster);
+    }
+
+    public WebInputHandler(TextMessageSender textSender, ServerLogger logger, WebScreenCaster screenCaster) {
+        this.out = null;
+        this.textSender = textSender;
         this.logger = logger;
         this.screenCaster = screenCaster;
         try {
@@ -44,6 +55,16 @@ public class WebInputHandler {
                 logger.appendLog("WebInputHandler: Không thể khởi tạo Robot: " + e.getMessage());
             }
         }
+    }
+
+    private void sendText(String text) {
+        try {
+            if (textSender != null) {
+                textSender.send(text);
+            } else if (out != null) {
+                WebSocketHelper.sendTextFrame(out, text);
+            }
+        } catch (Exception ignored) {}
     }
 
     /**
@@ -101,7 +122,7 @@ public class WebInputHandler {
                                 .getData(DataFlavor.stringFlavor);
                         if (clip != null) {
                             String resp = "{\"type\":\"clipboard_data\",\"text\":\"" + escapeJson(clip) + "\"}";
-                            WebSocketHelper.sendTextFrame(out, resp);
+                            sendText(resp);
                         }
                     } catch (Exception ignored) {}
                     break;
@@ -109,7 +130,7 @@ public class WebInputHandler {
                 case "ping":
                     String timestamp = data.get("t");
                     String pong = "{\"type\":\"pong\",\"t\":" + (timestamp != null ? timestamp : "0") + "}";
-                    WebSocketHelper.sendTextFrame(out, pong);
+                    sendText(pong);
                     break;
 
                 // ===== TRUYỀN TỆP TIN HAI CHIỀU =====
@@ -280,7 +301,7 @@ public class WebInputHandler {
                     logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + currentUploadName + "] lưu tại: " + RECEIVED_DIR.getAbsolutePath());
                 }
                 String resp = "{\"type\":\"file_upload_success\",\"name\":\"" + escapeJson(currentUploadName) + "\"}";
-                WebSocketHelper.sendTextFrame(out, resp);
+                sendText(resp);
             } catch (Exception e) {
                 if (logger != null) logger.appendLog("Lỗi đóng tệp: " + e.getMessage());
             } finally {
@@ -311,7 +332,7 @@ public class WebInputHandler {
                 }
             }
             sb.append("]}");
-            WebSocketHelper.sendTextFrame(out, sb.toString());
+            sendText(sb.toString());
         } catch (Exception e) {
             if (logger != null) logger.appendLog("Lỗi quét danh sách tệp: " + e.getMessage());
         }
@@ -323,9 +344,7 @@ public class WebInputHandler {
         String safeName = new File(rawName).getName();
         File f = new File(RECEIVED_DIR, safeName);
         if (!f.exists() || !f.isFile()) {
-            try {
-                WebSocketHelper.sendTextFrame(out, "{\"type\":\"file_download_error\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
-            } catch (Exception ignored) {}
+            sendText("{\"type\":\"file_download_error\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
             return;
         }
 
@@ -347,12 +366,12 @@ public class WebInputHandler {
                     String msg = "{\"type\":\"file_download_chunk\",\"name\":\"" + escapeJson(safeName) +
                             "\",\"chunk\":" + chunkIndex + ",\"total\":" + totalChunks +
                             ",\"data\":\"" + b64 + "\"}";
-                    WebSocketHelper.sendTextFrame(out, msg);
+                    sendText(msg);
                     chunkIndex++;
                     Thread.sleep(10);
                 }
 
-                WebSocketHelper.sendTextFrame(out, "{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");
+                sendText("{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");
                 if (logger != null) {
                     logger.appendLog("WebInputHandler: Đã truyền xong tệp [" + safeName + "] về Client.");
                 }

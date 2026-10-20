@@ -30,6 +30,8 @@ DoAn_Nhom13_X2_LTMMT/
 │   ├── WebRemoteServer.java       <-- Server HTTP & WebSocket RFC 6455 thuần Java
 │   ├── WebScreenCaster.java       <-- Luồng stream màn hình nhị phân qua WebSocket
 │   ├── WebInputHandler.java       <-- Xử lý lệnh điều khiển từ trình duyệt Web
+│   ├── CryptoHelper.java          <-- Mã hóa đầu cuối AES-256-GCM & PBKDF2
+│   ├── GatewayConnector.java      <-- Cầu nối WebSocket ra Cloud Relay Gateway
 │   └── KeyMapper.java             <-- Ánh xạ mã phím W3C sang Java KeyEvent
 │
 ├── web/                           <-- Giao diện Web Client
@@ -66,6 +68,6 @@ DoAn_Nhom13_X2_LTMMT/
 
 | MSSV | Họ và Tên | Vai trò chính | Công việc đã thực hiện | Merge Requests (PR) |
 | :---: | :--- | :--- | :--- | :---: |
-| **2380600980** | **Lê Trọng Khang** *(Nhóm trưởng - 23DTHA5)* | Core Network & Screen Stream | • Thiết kế giao thức truyền tải nhị phân qua Socket TCP<br>• Lập trình module chụp màn hình `ScreenCaster`<br>• Xử lý sự kiện điều khiển bàn phím, chuột `EventHandler`<br>• Tối ưu truyền tải vi sai Delta Frame & Adaptive Quality | !4, !7 |
-| **2380602196** | **Phạm Minh Thư** *(23DTHA5)* | Desktop GUI & Client Controls | • Thiết kế giao diện Swing `ServerDashboard` & `ClientDashboard`<br>• Xây dựng màn hình điều khiển `RemoteViewerFrame`<br>• Tích hợp tính năng truyền tệp 2 chiều (Upload/Download)<br>• Hỗ trợ điều khiển cảm ứng Mobile Touch & Bàn phím ảo | !5, !9 |
-| **2380600898** | **Trần Quốc Huy** *(23DTHA5)* | Web Platform & Cloud Gateway | • Phát triển máy chủ HTTP & WebSocket RFC 6455 thuần Java (`WebRemoteServer`)<br>• Xây dựng giao diện Web Client Canvas HTML5/JS/CSS giải mã GPU (`web/`)<br>• Xây dựng Cloud Relay Gateway trung chuyển qua Internet (`gateway/`) | !3, !6 |
+| **2380600980** | **Lê Trọng Khang** *(Nhóm trưởng - 23DTHA5)* | Core Network & Screen Stream | • Thiết kế giao thức truyền tải nhị phân qua Socket TCP<br>• Lập trình module chụp màn hình `ScreenCaster`<br>• Xử lý sự kiện điều khiển bàn phím, chuột `EventHandler`<br>• Tối ưu truyền tải vi sai Delta Frame & Adaptive Quality | !4, !8 |
+| **2380602196** | **Phạm Minh Thư** *(23DTHA5)* | Desktop GUI & Client Controls | • Thiết kế giao diện Swing `ServerDashboard` & `ClientDashboard`<br>• Xây dựng màn hình điều khiển `RemoteViewerFrame`<br>• Tích hợp tính năng truyền tệp 2 chiều (Upload/Download)<br>• Hỗ trợ điều khiển cảm ứng Mobile Touch & Bàn phím ảo | !5, !10 |
+| **2380600898** | **Trần Quốc Huy** *(23DTHA5)* | Web Platform & Cloud Gateway | • Phát triển máy chủ HTTP & WebSocket RFC 6455 thuần Java (`WebRemoteServer`)<br>• Xây dựng giao diện Web Client Canvas HTML5/JS/CSS giải mã GPU (`web/`)<br>• Xây dựng Cloud Relay Gateway trung chuyển qua Internet (`gateway/`)<br>• Mã hóa AES-256 E2EE, chống dò quét IP brute-force & kết nối Device ID 9 số | !6, !12 |

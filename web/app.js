@@ -23,11 +23,13 @@
     const btnToggleServerShare = document.getElementById('btnToggleServerShare');
     const lblServerPower = document.getElementById('lblServerPower');
     const dispServerIp = document.getElementById('dispServerIp');
+    const dispServerDeviceId = document.getElementById('dispServerDeviceId');
     const dispServerPort = document.getElementById('dispServerPort');
     const dispServerPass = document.getElementById('dispServerPass');
     const dispActiveClients = document.getElementById('dispActiveClients');
     const dispWebDirectUrl = document.getElementById('dispWebDirectUrl');
     const btnCopyIp = document.getElementById('btnCopyIp');
+    const btnCopyDeviceId = document.getElementById('btnCopyDeviceId');
     const btnCopyPass = document.getElementById('btnCopyPass');
     const btnCopyWebUrl = document.getElementById('btnCopyWebUrl');
     const btnGenNewPass = document.getElementById('btnGenNewPass');
@@ -35,6 +37,11 @@
     const serverLogsConsole = document.getElementById('serverLogsConsole');
 
     // View 3: Client Connect
+    const tabModeLan = document.getElementById('tabModeLan');
+    const tabModeInternet = document.getElementById('tabModeInternet');
+    const groupDeviceId = document.getElementById('groupDeviceId');
+    const groupIpPort = document.getElementById('groupIpPort');
+    const clientTargetDeviceId = document.getElementById('clientTargetDeviceId');
     const clientTargetIp = document.getElementById('clientTargetIp');
     const clientTargetPort = document.getElementById('clientTargetPort');
     const clientTargetPass = document.getElementById('clientTargetPass');
@@ -91,6 +98,7 @@
     let serverHeight = 1080;
     let pingInterval = null;
     let logPollInterval = null;
+    let clientConnectionMode = 'lan'; // 'lan' | 'internet'
 
     let frameCount = 0;
     let lastFpsTime = performance.now();
@@ -148,6 +156,9 @@
         dispServerPort.textContent = info.port;
         dispServerPass.textContent = info.password;
         dispActiveClients.textContent = `${info.activeClients || 0} máy khách`;
+        if (dispServerDeviceId) {
+            dispServerDeviceId.textContent = info.formattedDeviceId || info.deviceId || '--- --- ---';
+        }
 
         const fullWebUrl = `http://${info.ip}:${info.port}`;
         dispWebDirectUrl.textContent = fullWebUrl;
@@ -242,6 +253,13 @@
         copyTextToClipboard(dispServerIp.textContent, 'Đã sao chép IP máy chủ vào bộ nhớ tạm');
     });
 
+    if (btnCopyDeviceId) {
+        btnCopyDeviceId.addEventListener('click', () => {
+            const raw = dispServerDeviceId ? dispServerDeviceId.textContent.replace(/\s+/g, '') : '';
+            copyTextToClipboard(raw, 'Đã sao chép Mã Thiết Bị Internet (Device ID) vào bộ nhớ tạm');
+        });
+    }
+
     if (btnCopyPass) {
         btnCopyPass.addEventListener('click', () => {
             copyTextToClipboard(dispServerPass.textContent, 'Đã sao chép mật khẩu vào bộ nhớ tạm');
@@ -294,6 +312,43 @@
     clientTargetPass.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') btnClientStartConnect.click();
     });
+
+    // Chuyển đổi tab Mạng LAN vs Xuyên Internet
+    if (tabModeLan && tabModeInternet) {
+        tabModeLan.addEventListener('click', () => {
+            clientConnectionMode = 'lan';
+            tabModeLan.classList.add('active');
+            tabModeInternet.classList.remove('active');
+            if (groupIpPort) groupIpPort.style.display = 'block';
+            if (groupDeviceId) groupDeviceId.style.display = 'none';
+        });
+
+        tabModeInternet.addEventListener('click', () => {
+            clientConnectionMode = 'internet';
+            tabModeInternet.classList.add('active');
+            tabModeLan.classList.remove('active');
+            if (groupIpPort) groupIpPort.style.display = 'none';
+            if (groupDeviceId) groupDeviceId.style.display = 'block';
+            if (clientTargetDeviceId) clientTargetDeviceId.focus();
+        });
+    }
+
+    if (clientTargetDeviceId) {
+        // Tự động định dạng khoảng trắng 3-3-3 khi gõ số (Ví dụ: 123 456 789)
+        clientTargetDeviceId.addEventListener('input', (e) => {
+            let digits = e.target.value.replace(/\D/g, '').slice(0, 9);
+            let formatted = '';
+            for (let i = 0; i < digits.length; i++) {
+                if (i > 0 && i % 3 === 0) formatted += ' ';
+                formatted += digits[i];
+            }
+            e.target.value = formatted;
+        });
+
+        clientTargetDeviceId.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') clientTargetPass.focus();
+        });
+    }
 
     // Quét tìm máy chủ trong mạng LAN
     btnScanLan.addEventListener('click', async () => {
@@ -360,19 +415,86 @@
         connectToRemoteServer(host, port, pass);
     }
 
-    // Bắt đầu kết nối Client
+    // Bắt đầu kết nối Client (Mạng LAN hoặc Xuyên Internet)
     btnClientStartConnect.addEventListener('click', () => {
-        const host = clientTargetIp.value.trim();
-        const port = clientTargetPort.value.trim() || '8080';
         const password = clientTargetPass.value.trim();
 
-        if (!host) {
-            showClientError('Vui lòng nhập địa chỉ IP của Máy Chủ!');
-            return;
-        }
+        if (clientConnectionMode === 'internet') {
+            const devIdRaw = clientTargetDeviceId ? clientTargetDeviceId.value.trim().replace(/\s+/g, '') : '';
+            if (!devIdRaw || !/^\d{9}$/.test(devIdRaw)) {
+                showClientError('Vui lòng nhập đúng 9 chữ số Mã Thiết Bị (Device ID) để kết nối qua Internet!');
+                return;
+            }
+            connectViaInternetGateway(devIdRaw, password);
+        } else {
+            const host = clientTargetIp.value.trim();
+            const port = clientTargetPort.value.trim() || '8080';
 
-        connectToRemoteServer(host, port, password);
+            if (!host) {
+                showClientError('Vui lòng nhập địa chỉ IP của Máy Chủ!');
+                return;
+            }
+
+            connectToRemoteServer(host, port, password);
+        }
     });
+
+    function connectViaInternetGateway(deviceId, password) {
+        clearClientError();
+        setConnectingButton(true);
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const gatewayHost = window.location.hostname || 'localhost';
+        const gatewayWsUrl = `${protocol}//${gatewayHost}:3000`;
+
+        try {
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.onmessage = null;
+                ws.close();
+                ws = null;
+            }
+
+            showToast(`Đang kết nối tới Cloud Relay Gateway (${gatewayHost}:3000)...`, 'info');
+            ws = new WebSocket(gatewayWsUrl);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                showToast(`Đã nối Gateway. Đang ghép cặp với Thiết Bị [${deviceId}]...`, 'info');
+                sendJson({
+                    type: 'join_host',
+                    id: deviceId,
+                    password: password
+                });
+            };
+
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    handleTextMessage(event.data);
+                } else if (event.data instanceof ArrayBuffer) {
+                    handleBinaryFrame(event.data);
+                }
+            };
+
+            ws.onerror = () => {
+                if (!isAuthenticated) {
+                    showClientError(`Không thể kết nối Cloud Relay Gateway (${gatewayHost}:3000)! Hãy đảm bảo Gateway đang chạy (chạy npm start trong gateway/).`);
+                    setConnectingButton(false);
+                }
+            };
+
+            ws.onclose = (event) => {
+                if (isAuthenticated) {
+                    showToast('Mất kết nối với máy chủ từ xa qua Cloud Relay!', 'error');
+                }
+                handleDisconnect();
+            };
+        } catch (e) {
+            showClientError('Lỗi khởi tạo kết nối Cloud Relay: ' + e.message);
+            setConnectingButton(false);
+        }
+    }
 
     function connectToRemoteServer(host, port, password) {
         clearClientError();

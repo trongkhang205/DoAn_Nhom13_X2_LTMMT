@@ -195,6 +195,14 @@
                         </div>
 
                         <div class="info-row">
+                            <label>Mã Thiết Bị Internet (Device ID):</label>
+                            <div class="info-box highlight-id-box">
+                                <span class="mono-text highlight-pass" id="dispServerDeviceId">--- --- ---</span>
+                                <button class="btn-mini" id="btnCopyDeviceId" title="Sao chép Device ID">Sao chép</button>
+                            </div>
+                        </div>
+
+                        <div class="info-row">
                             <label>Cổng Web (Port):</label>
                             <div class="info-box">
                                 <span class="mono-text" id="dispServerPort">8080</span>
@@ -254,35 +262,61 @@
                 </div>
 
                 <div class="client-connect-card">
-                    <div class="form-group">
-                        <div class="label-with-action">
-                            <label for="clientTargetIp">Địa chỉ IP Máy Chủ:</label>
-                            <button class="btn-link" id="btnScanLan">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                    class="icon-inline">
-                                    <circle cx="12" cy="12" r="10"></circle>
-                                    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
-                                </svg>
-                                <span>Quét tìm trong LAN</span>
-                            </button>
-                        </div>
+                    <!-- Chế độ kết nối: LAN vs Internet Device ID -->
+                    <div class="conn-mode-tabs">
+                        <button type="button" class="conn-tab active" id="tabModeLan">Mạng LAN (IP & Port)</button>
+                        <button type="button" class="conn-tab" id="tabModeInternet">🌐 Xuyên Internet (Device ID 9 Số)</button>
+                    </div>
+
+                    <!-- Khung kết nối bằng Device ID (Chế độ Internet) -->
+                    <div id="groupDeviceId" class="form-group" style="display: none;">
+                        <label for="clientTargetDeviceId">Mã Thiết Bị Cần Điều Khiển (Device ID):</label>
                         <div class="input-wrapper">
-                            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-                                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-                                <line x1="6" y1="6" x2="6.01" y2="6"></line>
-                                <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                <line x1="8" y1="21" x2="16" y2="21"></line>
+                                <line x1="12" y1="17" x2="12" y2="21"></line>
                             </svg>
-                            <input type="text" id="clientTargetIp" placeholder="127.0.0.1 hoặc 192.168.1.x"
-                                spellcheck="false" autocomplete="off">
+                            <input type="text" id="clientTargetDeviceId" placeholder="Ví dụ: 789 123 456" spellcheck="false" autocomplete="off">
+                        </div>
+                        <div class="security-badge-box">
+                            <span class="security-badge">🔒 Mã Hóa Đầu-Cuối AES-256 (E2EE)</span>
+                            <span class="security-tip">Không cần mở port modem, không cần tắt tường lửa</span>
                         </div>
                     </div>
 
-                    <!-- Khung danh sách máy quét được -->
-                    <div class="discovered-servers" id="discoveredContainer" style="display: none;">
-                        <span class="discovered-title">Máy chủ tìm thấy trong mạng:</span>
-                        <div class="discovered-list" id="discoveredList"></div>
+                    <!-- Khung kết nối bằng IP (Chế độ LAN) -->
+                    <div id="groupIpPort">
+                        <div class="form-group">
+                            <div class="label-with-action">
+                                <label for="clientTargetIp">Địa chỉ IP Máy Chủ:</label>
+                                <button class="btn-link" id="btnScanLan">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        class="icon-inline">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+                                    </svg>
+                                    <span>Quét tìm trong LAN</span>
+                                </button>
+                            </div>
+                            <div class="input-wrapper">
+                                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                                </svg>
+                                <input type="text" id="clientTargetIp" placeholder="127.0.0.1 hoặc 192.168.1.x"
+                                    spellcheck="false" autocomplete="off">
+                            </div>
+                        </div>
+
+                        <!-- Khung danh sách máy quét được -->
+                        <div class="discovered-servers" id="discoveredContainer" style="display: none;">
+                            <span class="discovered-title">Máy chủ tìm thấy trong mạng:</span>
+                            <div class="discovered-list" id="discoveredList"></div>
+                        </div>
                     </div>
 
                     <div class="form-row">
