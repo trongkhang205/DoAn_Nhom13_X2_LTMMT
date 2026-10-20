@@ -1,0 +1,46 @@
+# ==========================================
+# GITIGNORE CHUẨN CHO ĐỒ ÁN LẬP TRÌNH MẠNG
+# Dự án: Remote Desktop (Java + Web + Node.js)
+# ==========================================
+
+# 1. Java Build Output & Class Files (Cực kỳ quan trọng - tránh trừ 20% điểm)
+*.class
+build/
+dist/
+target/
+bin/
+*.jar
+*.war
+*.ear
+
+# 2. NetBeans IDE Files
+nbproject/private/
+build.xml.bak
+.netbeans_automatic_build
+.netbeans_update_resources
+
+# 3. Node.js Gateway Dependencies & Logs
+node_modules/
+gateway/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 4. Other IDEs (VS Code, IntelliJ, Eclipse)
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+.project
+.classpath
+.settings/
+
+# 5. OS & Temporary Files
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.bak
+*.swp
+KE_HOACH_TONG_THE_NHOM_13.md
