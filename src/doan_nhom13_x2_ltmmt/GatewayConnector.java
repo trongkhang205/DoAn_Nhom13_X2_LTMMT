@@ -23,6 +23,7 @@ public class GatewayConnector implements WebSocket.Listener {
     private final ServerLogger logger;
     private WebSocket webSocket;
     private volatile boolean connected = false;
+    private volatile boolean running = true;
 
     private WebScreenCaster screenCaster;
     private WebAudioStreamer audioStreamer;
@@ -54,15 +55,16 @@ public class GatewayConnector implements WebSocket.Listener {
     }
 
     public synchronized void stop() {
+        this.running = false;
         this.connected = false;
-        if (connectorThread != null) {
-            connectorThread.interrupt();
-        }
         if (webSocket != null) {
             try {
                 webSocket.abort();
             } catch (Exception ignored) {}
             webSocket = null;
+        }
+        if (connectorThread != null) {
+            connectorThread.interrupt();
         }
         stopStreaming();
     }
@@ -75,7 +77,11 @@ public class GatewayConnector implements WebSocket.Listener {
             } catch (Exception ignored) {}
             webSocket = null;
         }
-        if (connectorThread != null) {
+        if (connectorThread == null || !connectorThread.isAlive()) {
+            connectorThread = new Thread(this::connectLoop, "GatewayConnector-Thread");
+            connectorThread.setDaemon(true);
+            connectorThread.start();
+        } else {
             connectorThread.interrupt();
         }
     }
@@ -151,7 +157,8 @@ public class GatewayConnector implements WebSocket.Listener {
     }
 
     private void connectLoop() {
-        while (!Thread.currentThread().isInterrupted()) {
+        while (running) {
+            Thread.interrupted(); // Xóa cờ ngắt nếu có để đảm bảo luồng tiếp tục chạy
             try {
                 if (logger != null) {
                     logger.appendLog("GatewayConnector: Đang kết nối tới Cloud Relay Gateway (" + gatewayUrl + ")...");
@@ -177,22 +184,26 @@ public class GatewayConnector implements WebSocket.Listener {
                 }
 
                 // Giữ kết nối và gửi Heartbeat định kỳ
-                while (connected && webSocket != null && !webSocket.isInputClosed() && !webSocket.isOutputClosed()) {
-                    Thread.sleep(4000);
-                    if (connected && webSocket != null) {
-                        safeSendPing();
+                while (running && connected && webSocket != null && !webSocket.isInputClosed() && !webSocket.isOutputClosed()) {
+                    try {
+                        Thread.sleep(3000);
+                        if (running && connected && webSocket != null) {
+                            safeSendPing();
+                        }
+                    } catch (InterruptedException ie) {
+                        break; // Thoát vòng lặp ngủ để kết nối lại ngay lập tức
                     }
                 }
             } catch (Exception e) {
                 this.connected = false;
                 stopStreaming();
-                if (logger != null) {
+                if (logger != null && running) {
                     logger.appendLog("GatewayConnector: Kênh Cloud Relay chưa sẵn sàng (" + e.getMessage() + "), sẽ thử lại sau 3s...");
                 }
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException ie) {
-                    // Tiếp tục vòng lặp kết nối lại ngay lập tức
+                if (running) {
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException ignored) {}
                 }
             }
         }

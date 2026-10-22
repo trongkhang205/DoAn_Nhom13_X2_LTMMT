@@ -180,16 +180,35 @@
         dispWebDirectUrl.textContent = fullWebUrl;
 
         // Trạng thái chia sẻ
-        if (info.isSharingEnabled) {
-            btnToggleServerShare.className = 'btn-power active';
-            lblServerPower.textContent = 'ĐANG BẬT CHIA SẺ';
-            serverStateDot.className = 'status-dot dot-green';
-            navServerStatusText.textContent = `Server: Sẵn Sàng (${info.ip}:${info.port})`;
+        if (info.ip === 'Cloud-Relay') {
+            if (info.isSharingEnabled) {
+                btnToggleServerShare.className = 'btn-power active';
+                lblServerPower.textContent = 'MÁY CHỦ TRỰC TUYẾN';
+                serverStateDot.className = 'status-dot dot-green';
+                navServerStatusText.textContent = `Thiết Bị: Sẵn Sàng (${info.formattedDeviceId || info.deviceId})`;
+            } else {
+                btnToggleServerShare.className = 'btn-power off';
+                lblServerPower.textContent = 'MÁY CHỦ NGOẠI TUYẾN';
+                serverStateDot.className = 'status-dot dot-red';
+                navServerStatusText.textContent = 'Gateway: Chưa Có Máy Chủ Online';
+            }
         } else {
-            btnToggleServerShare.className = 'btn-power off';
-            lblServerPower.textContent = 'ĐÃ TẮT CHIA SẺ';
-            serverStateDot.className = 'status-dot dot-red';
-            navServerStatusText.textContent = 'Server: Tắt Chia Sẻ';
+            if (info.isSharingEnabled) {
+                btnToggleServerShare.className = 'btn-power active';
+                lblServerPower.textContent = 'ĐANG BẬT CHIA SẺ';
+                serverStateDot.className = 'status-dot dot-green';
+                navServerStatusText.textContent = `Server: Sẵn Sàng (${info.ip}:${info.port})`;
+            } else {
+                btnToggleServerShare.className = 'btn-power off';
+                lblServerPower.textContent = 'ĐÃ TẮT CHIA SẺ';
+                serverStateDot.className = 'status-dot dot-red';
+                navServerStatusText.textContent = 'Server: Tắt Chia Sẻ';
+            }
+        }
+
+        // Tự động điền trước Device ID nếu form đang trống và Gateway có thiết bị online
+        if (clientTargetDeviceId && !clientTargetDeviceId.value && info.deviceId) {
+            clientTargetDeviceId.value = info.formattedDeviceId || info.deviceId;
         }
 
         // Cập nhật trạng thái Cầu Nối Tunnel 4G
@@ -759,6 +778,7 @@
                     sendJson({ type: 'get_screens' });
                 } else {
                     showClientError(msg.message || 'Mật khẩu xác thực không đúng!');
+                    showToast(msg.message || 'Kết nối không thành công!', 'error');
                     setConnectingButton(false);
                     if (ws) ws.close();
                 }

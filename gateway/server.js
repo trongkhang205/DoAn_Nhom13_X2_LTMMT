@@ -47,11 +47,19 @@ const server = http.createServer((req, res) => {
 
     // API tương thích cho client từ xa
     if (url.pathname === '/api/server-info') {
+        const firstEntry = hosts.entries().next().value;
+        const onlineDeviceId = firstEntry ? firstEntry[0] : null;
+        const hostName = firstEntry ? firstEntry[1].name : null;
+
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         return res.end(JSON.stringify({
             ip: 'Cloud-Relay',
             port: PORT,
-            isSharingEnabled: true,
+            isSharingEnabled: hosts.size > 0,
+            onlineHosts: hosts.size,
+            deviceId: onlineDeviceId,
+            formattedDeviceId: onlineDeviceId ? (onlineDeviceId.slice(0, 3) + ' ' + onlineDeviceId.slice(3, 6) + ' ' + onlineDeviceId.slice(6, 9)) : null,
+            hostName: hostName || 'Máy tính nhóm 13',
             activeClients: hosts.size,
             isTunnelActive: true
         }));
