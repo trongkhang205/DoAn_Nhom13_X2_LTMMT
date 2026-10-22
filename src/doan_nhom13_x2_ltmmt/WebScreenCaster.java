@@ -33,6 +33,11 @@ public class WebScreenCaster implements Runnable {
     private Robot robot;
     private Rectangle screenRect;
 
+    // Quản lý Đa Màn Hình (Multi-Monitor)
+    private volatile int currentScreenIndex = 0;
+    private volatile boolean screenSwitchRequested = false;
+    private final Object screenLock = new Object();
+
     // Buffer pixel để so sánh vi sai (Delta Diffing)
     private int[] prevPixels;
     private int keyframeInterval = 90; // Gửi Full frame mỗi 90 frames (~3 giây)
@@ -98,6 +103,70 @@ public class WebScreenCaster implements Runnable {
         this.targetFps = Math.max(5, Math.min(60, fps));
     }
 
+    public Rectangle getScreenBounds() {
+        synchronized (screenLock) {
+            return screenRect != null ? new Rectangle(screenRect) : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+        }
+    }
+
+    public int getCurrentScreenIndex() {
+        return currentScreenIndex;
+    }
+
+    public synchronized boolean switchScreen(int targetIndex) {
+        try {
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            GraphicsDevice[] devices = ge.getScreenDevices();
+            if (targetIndex >= 0 && targetIndex < devices.length) {
+                GraphicsDevice dev = devices[targetIndex];
+                Rectangle bounds = dev.getDefaultConfiguration().getBounds();
+                synchronized (screenLock) {
+                    this.robot = new Robot(dev);
+                    this.screenRect = bounds;
+                    this.currentScreenIndex = targetIndex;
+                    this.screenSwitchRequested = true;
+                }
+                if (logger != null) {
+                    logger.appendLog("WebScreenCaster: Đã chuyển sang Màn hình " + (targetIndex + 1) + " [" + bounds.width + "x" + bounds.height + " @ (" + bounds.x + "," + bounds.y + ")]");
+                }
+                return true;
+            }
+        } catch (Exception e) {
+            if (logger != null) {
+                logger.appendLog("WebScreenCaster: Lỗi chuyển màn hình: " + e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public static String getScreensJson() {
+        try {
+            GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            GraphicsDevice[] devices = ge.getScreenDevices();
+            GraphicsDevice defaultDev = ge.getDefaultScreenDevice();
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = 0; i < devices.length; i++) {
+                GraphicsDevice dev = devices[i];
+                Rectangle bounds = dev.getDefaultConfiguration().getBounds();
+                boolean isPrimary = (dev == defaultDev);
+                sb.append("{");
+                sb.append("\"index\":").append(i).append(",");
+                sb.append("\"name\":\"Màn hình ").append(i + 1).append(" (").append(bounds.width).append("x").append(bounds.height).append(")\",");
+                sb.append("\"width\":").append(bounds.width).append(",");
+                sb.append("\"height\":").append(bounds.height).append(",");
+                sb.append("\"x\":").append(bounds.x).append(",");
+                sb.append("\"y\":").append(bounds.y).append(",");
+                sb.append("\"isPrimary\":").append(isPrimary);
+                sb.append("}");
+                if (i < devices.length - 1) sb.append(",");
+            }
+            sb.append("]");
+            return sb.toString();
+        } catch (Exception e) {
+            return "[{\"index\":0,\"name\":\"Màn hình chính\",\"width\":1920,\"height\":1080,\"x\":0,\"y\":0,\"isPrimary\":true}]";
+        }
+    }
+
     @Override
     public void run() {
         if (logger != null) {
@@ -111,11 +180,11 @@ public class WebScreenCaster implements Runnable {
             return;
         }
 
-        final int W = screenRect.width;
-        final int H = screenRect.height;
+        int W = screenRect.width;
+        int H = screenRect.height;
         final int blockSize = 32; // Kích thước khối kiểm tra (32x32 pixels)
-        final int blocksX = (W + blockSize - 1) / blockSize;
-        final int blocksY = (H + blockSize - 1) / blockSize;
+        int blocksX = (W + blockSize - 1) / blockSize;
+        int blocksY = (H + blockSize - 1) / blockSize;
 
         this.prevPixels = new int[W * H];
         ByteArrayOutputStream baos = new ByteArrayOutputStream(128 * 1024);
@@ -127,6 +196,22 @@ public class WebScreenCaster implements Runnable {
         while (running && !Thread.currentThread().isInterrupted()) {
             long startTime = System.currentTimeMillis();
             int frameDelay = 1000 / Math.max(1, targetFps);
+
+            // Kiểm tra yêu cầu chuyển màn hình động
+            if (screenSwitchRequested) {
+                synchronized (screenLock) {
+                    screenSwitchRequested = false;
+                    W = screenRect.width;
+                    H = screenRect.height;
+                    blocksX = (W + blockSize - 1) / blockSize;
+                    blocksY = (H + blockSize - 1) / blockSize;
+                    this.prevPixels = new int[W * H];
+                    if (gReusable != null) gReusable.dispose();
+                    reusableRgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
+                    gReusable = reusableRgbImage.createGraphics();
+                    frameCounter = 0; // Buộc gửi Keyframe Full màn hình mới
+                }
+            }
 
             // Bỏ qua khung hình nếu đường truyền mạng đang bận gửi khung trước (Tránh nghẽn hàng đợi & drop FPS)
             if (busyChecker != null && busyChecker.getAsBoolean()) {

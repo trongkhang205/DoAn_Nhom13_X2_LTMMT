@@ -415,6 +415,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
+        // 7. API: Lấy danh sách màn hình hệ thống (Multi-Monitor)
+        if (uri.startsWith("/api/screens")) {
+            sendJsonResponse(out, WebScreenCaster.getScreensJson());
+            return;
+        }
+
         // Phục vụ tệp tĩnh Web (HTML, CSS, JS)
         serveHttpStatic(uri, out);
     }

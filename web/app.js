@@ -83,6 +83,10 @@
     const btnQualityDropdown = document.getElementById('btnQualityDropdown');
     const menuQuality = document.getElementById('menuQuality');
     const lblQuality = document.getElementById('lblQuality');
+    const wrapScreenSelector = document.getElementById('wrapScreenSelector');
+    const btnScreenDropdown = document.getElementById('btnScreenDropdown');
+    const menuScreens = document.getElementById('menuScreens');
+    const lblActiveScreen = document.getElementById('lblActiveScreen');
     const btnSpecialKeys = document.getElementById('btnSpecialKeys');
     const menuSpecialKeys = document.getElementById('menuSpecialKeys');
     const btnFullscreen = document.getElementById('btnFullscreen');
@@ -726,6 +730,8 @@
 
                     startPingHeartbeat();
                     remoteCanvas.focus();
+                    // Yêu cầu danh sách màn hình hiển thị (Đa màn hình)
+                    sendJson({ type: 'get_screens' });
                 } else {
                     showClientError(msg.message || 'Mật khẩu xác thực không đúng!');
                     setConnectingButton(false);
@@ -753,6 +759,14 @@
                         sendJson({ type: 'quality', value: '0.60' });
                         sendJson({ type: 'target_fps', value: '28' });
                     }
+                }
+            } else if (msg.type === 'screen_list') {
+                renderScreensMenu(msg.screens, msg.current);
+            } else if (msg.type === 'screen_switched') {
+                if (msg.success) {
+                    showToast(`Đã chuyển sang Màn hình ${msg.index + 1} (${msg.width}x${msg.height})`, 'success');
+                } else {
+                    showToast(`Không thể chuyển sang Màn hình ${msg.index + 1}`, 'error');
                 }
             } else if (msg.type === 'clipboard_data') {
                 txtClipboard.value = msg.text || '';
@@ -898,6 +912,9 @@
     }
     setupDropdown(btnQualityDropdown, menuQuality);
     setupDropdown(btnSpecialKeys, menuSpecialKeys);
+    if (btnScreenDropdown && menuScreens) {
+        setupDropdown(btnScreenDropdown, menuScreens);
+    }
 
     document.addEventListener('click', () => {
         document.querySelectorAll('.dropdown-wrapper').forEach(w => w.classList.remove('open'));
@@ -1915,3 +1932,33 @@
     // Khởi chạy ban đầu: Lấy server-info
     fetchServerInfo();
 })();
+
+    // ================= MULTI-MONITOR SUPPORT =================
+    function renderScreensMenu(screens, currentIndex) {
+        if (!screens || !menuScreens) return;
+        menuScreens.innerHTML = '';
+        screens.forEach(s => {
+            const btn = document.createElement('button');
+            btn.className = `menu-item ${s.index === currentIndex ? 'active' : ''}`;
+            btn.dataset.screenIndex = s.index;
+            btn.innerHTML = `🖥️ ${escapeHtml(s.name)} ${s.isPrimary ? '<span style="opacity:0.7; font-size:11px;">(Chính)</span>' : ''}`;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                menuScreens.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+                btn.classList.add('active');
+                if (lblActiveScreen) lblActiveScreen.textContent = `Màn hình ${s.index + 1}`;
+                if (wrapScreenSelector) wrapScreenSelector.classList.remove('open');
+                sendJson({ type: 'switch_screen', index: s.index });
+            });
+            menuScreens.appendChild(btn);
+        });
+
+        const activeScreen = screens.find(s => s.index === currentIndex) || screens[0];
+        if (activeScreen && lblActiveScreen) {
+            lblActiveScreen.textContent = `Màn hình ${activeScreen.index + 1}`;
+        }
+
+        if (wrapScreenSelector) {
+            wrapScreenSelector.style.display = screens.length > 0 ? 'inline-flex' : 'none';
+        }
+    }

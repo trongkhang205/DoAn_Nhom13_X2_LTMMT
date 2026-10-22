@@ -173,6 +173,20 @@ public class WebInputHandler {
                     handleFileDownload(data);
                     break;
 
+                // ===== ĐA MÀN HÌNH (MULTI-MONITOR) =====
+                case "get_screens":
+                    sendText("{\"type\":\"screen_list\",\"screens\":" + WebScreenCaster.getScreensJson() + ",\"current\":" + (screenCaster != null ? screenCaster.getCurrentScreenIndex() : 0) + "}");
+                    break;
+
+                case "switch_screen":
+                    if (data.containsKey("index") && screenCaster != null) {
+                        int targetIdx = Integer.parseInt(data.get("index"));
+                        boolean ok = screenCaster.switchScreen(targetIdx);
+                        Rectangle b = screenCaster.getScreenBounds();
+                        sendText("{\"type\":\"screen_switched\",\"success\":" + ok + ",\"index\":" + targetIdx + ",\"width\":" + (b != null ? b.width : 0) + ",\"height\":" + (b != null ? b.height : 0) + "}");
+                    }
+                    break;
+
                 default:
                     break;
             }
@@ -190,7 +204,10 @@ public class WebInputHandler {
                 if (data.containsKey("x") && data.containsKey("y")) {
                     int x = (int) Math.round(Double.parseDouble(data.get("x")));
                     int y = (int) Math.round(Double.parseDouble(data.get("y")));
-                    robot.mouseMove(x, y);
+                    Rectangle bounds = screenCaster != null ? screenCaster.getScreenBounds() : null;
+                    int offsetX = bounds != null ? bounds.x : 0;
+                    int offsetY = bounds != null ? bounds.y : 0;
+                    robot.mouseMove(offsetX + x, offsetY + y);
                 }
                 break;
 
