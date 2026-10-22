@@ -290,7 +290,14 @@ public class GatewayConnector implements WebSocket.Listener {
 
         this.screenCaster = new WebScreenCaster(frameSender, logger);
         this.screenCaster.setBusyChecker(this::isBinaryBusy);
-        this.inputHandler = new WebInputHandler(textSender, logger, screenCaster);
+        this.screenCaster.setUacStatusListener((active) -> {
+            safeSendText("{\"type\":\"uac_status\",\"active\":" + active + "}");
+        });
+
+        this.audioStreamer = new WebAudioStreamer(this::safeSendBinary, logger);
+        new Thread(audioStreamer, "Gateway-AudioStreamer-Thread").start();
+
+        this.inputHandler = new WebInputHandler(textSender, logger, screenCaster, audioStreamer);
         new Thread(screenCaster, "Gateway-ScreenCaster-Thread").start();
     }
 

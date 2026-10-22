@@ -36,6 +36,11 @@ public class WebScreenCaster implements Runnable {
     // Khóa mã hóa đầu cuối E2EE (AES-256-GCM)
     private volatile javax.crypto.SecretKey e2eeKey = null;
 
+    // Giám sát UAC / Secure Desktop
+    private volatile boolean uacActive = false;
+    private int blackFrameCount = 0;
+    private java.util.function.Consumer<Boolean> uacStatusListener = null;
+
     // Quản lý Đa Màn Hình (Multi-Monitor)
     private volatile int currentScreenIndex = 0;
     private volatile boolean screenSwitchRequested = false;
@@ -121,6 +126,10 @@ public class WebScreenCaster implements Runnable {
         if (logger != null && key != null) {
             logger.appendLog("WebScreenCaster: Đã kích hoạt kênh mã hóa đầu cuối E2EE (AES-256-GCM) cho luồng hình ảnh.");
         }
+    }
+
+    public void setUacStatusListener(java.util.function.Consumer<Boolean> listener) {
+        this.uacStatusListener = listener;
     }
 
     public synchronized boolean switchScreen(int targetIndex) {
@@ -248,6 +257,38 @@ public class WebScreenCaster implements Runnable {
                 }
 
                 int[] currPixels = ((DataBufferInt) rgbImage.getRaster().getDataBuffer()).getData();
+
+                // Kiểm tra trạng thái màn hình đen do Windows UAC / Secure Desktop
+                boolean isBlackSample = true;
+                int sampleStep = Math.max(1, currPixels.length / 16);
+                for (int sp = 0; sp < currPixels.length; sp += sampleStep) {
+                    if ((currPixels[sp] & 0x00FFFFFF) != 0) {
+                        isBlackSample = false;
+                        break;
+                    }
+                }
+
+                if (isBlackSample) {
+                    blackFrameCount++;
+                    if (blackFrameCount > 15 && !uacActive) {
+                        uacActive = true;
+                        if (uacStatusListener != null) uacStatusListener.accept(true);
+                        if (logger != null) {
+                            logger.appendLog("WebScreenCaster: [CẢNH BÁO UAC] Màn hình bị khóa bảo mật Secure Desktop / UAC.");
+                        }
+                    }
+                } else {
+                    if (uacActive) {
+                        uacActive = false;
+                        blackFrameCount = 0;
+                        if (uacStatusListener != null) uacStatusListener.accept(false);
+                        if (logger != null) {
+                            logger.appendLog("WebScreenCaster: [UAC ĐÃ MỞ] Khôi phục truyền màn hình bình thường.");
+                        }
+                    } else {
+                        blackFrameCount = 0;
+                    }
+                }
 
                 // 2. Thuật toán phát hiện vùng thay đổi Siêu Tốc (9-point Sample Diffing)
                 int minBx = Integer.MAX_VALUE, minBy = Integer.MAX_VALUE;

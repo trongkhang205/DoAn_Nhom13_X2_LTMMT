@@ -2357,3 +2357,29 @@ body {
 .card-btn {
     transform: translateZ(26px);
 }
+
+/* ================= UAC SECURE DESKTOP BANNER ================= */
+.uac-banner {
+    position: fixed;
+    top: 75px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #111827;
+    font-weight: 700;
+    font-size: 13px;
+    border-radius: 9999px;
+    box-shadow: 0 10px 30px rgba(245, 158, 11, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    animation: uacPulse 1.8s infinite ease-in-out;
+}
+.uac-banner .uac-icon { font-size: 18px; }
+@keyframes uacPulse {
+    0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); }
+    50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 14px 40px rgba(245, 158, 11, 0.65); }
+}

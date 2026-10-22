@@ -668,6 +668,12 @@
 
         <input type="text" id="mobileKeyInput" style="position:fixed;top:-200px;left:-200px;opacity:0;pointer-events:none;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
+        <!-- Banner Cảnh báo UAC Windows Thông Minh -->
+        <div id="uacWarningBanner" class="uac-banner" style="display: none;">
+            <span class="uac-icon">⚠️</span>
+            <span class="uac-text">Máy chủ đang hiển thị hộp thoại xác nhận Windows UAC / Secure Desktop. Hãy nhấn "Yes" trực tiếp trên màn hình máy chủ để tiếp tục!</span>
+        </div>
+
         <!-- Canvas Viewport -->
         <main class="canvas-viewport" id="canvasViewport">
             <canvas id="remoteCanvas" tabindex="0"></canvas>

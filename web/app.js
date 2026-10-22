@@ -770,6 +770,16 @@
                 }
             } else if (msg.type === 'screen_list') {
                 renderScreensMenu(msg.screens, msg.current);
+            } else if (msg.type === 'uac_status') {
+                const uacBanner = document.getElementById('uacWarningBanner');
+                if (uacBanner) {
+                    uacBanner.style.display = msg.active ? 'flex' : 'none';
+                }
+                if (msg.active) {
+                    showToast('Phát hiện màn hình xác nhận quyền Windows UAC / Admin trên máy chủ!', 'warning');
+                } else {
+                    showToast('Đã mở khóa UAC, tiếp tục điều khiển máy tính!', 'success');
+                }
             } else if (msg.type === 'screen_switched') {
                 if (msg.success) {
                     showToast(`Đã chuyển sang Màn hình ${msg.index + 1} (${msg.width}x${msg.height})`, 'success');

@@ -689,6 +689,11 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                             if (e2eeKey != null) {
                                 screenCasterRef[0].setE2eeKey(e2eeKey);
                             }
+                            screenCasterRef[0].setUacStatusListener((active) -> {
+                                try {
+                                    WebSocketHelper.sendTextFrame(out, "{\"type\":\"uac_status\",\"active\":" + active + "}");
+                                } catch (Exception ignored) {}
+                            });
                             new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
 
                             // Khởi động WebAudioStreamer trên luồng riêng
