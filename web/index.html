@@ -14,6 +14,8 @@
 </head>
 
 <body class="dark-theme">
+    <!-- Canvas Hiệu Ứng Cánh Hoa Bay Trong Gió Độc Bản (Floating Petals Canvas) -->
+    <canvas id="petalsCanvas" class="petals-canvas"></canvas>
     <!-- Hiệu ứng hào quang nền -->
     <div class="ambient-glow glow-top"></div>
     <div class="ambient-glow glow-bottom"></div>
@@ -93,12 +95,10 @@
             <!-- HERO 3D LANDING SECTION -->
             <div class="hero-3d-layout">
                 <div class="hero-text-col">
-                    <div class="hero-badge">
-                        <span class="badge-dot"></span>
-                        <svg class="badge-sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/>
-                        </svg>
-                        <span>NEXT-GEN WEB REMOTE DESKTOP 2.0</span>
+                    <div class="hero-badge floral-hero-badge">
+                        <span class="badge-dot rose-dot"></span>
+                        <span class="badge-flower-icon">🌹</span>
+                        <span>VƯỜN HỒNG CÔNG NGHỆ • ROSE GARDEN REMOTE 2.0</span>
                     </div>
                     <h1 class="hero-title">
                         HỆ THỐNG ĐIỀU KHIỂN<br>
@@ -243,8 +243,11 @@
             <div class="panel-container">
                 <div class="panel-header">
                     <div>
+                        <div class="floral-view-tag sunflower-tag">
+                            <span>🌻 Vườn Hướng Dương Hoàng Kim • Sunflower Solar Hub</span>
+                        </div>
                         <h2>MÁY CHỦ ĐIỀU KHIỂN TỪ XA (SERVER)</h2>
-                        <p class="panel-subtitle">Quản lý trạng thái chia sẻ màn hình và bảo mật máy này</p>
+                        <p class="panel-subtitle">Tỏa sáng năng lượng ấm áp như đóa hướng dương hướng về mặt trời</p>
                     </div>
                     <div class="server-power-toggle">
                         <button class="btn-power active" id="btnToggleServerShare">
@@ -374,8 +377,11 @@
             <div class="panel-container max-w-640">
                 <div class="panel-header text-center">
                     <div>
+                        <div class="floral-view-tag lavender-tag">
+                            <span>🌸 Cầu Nối Oải Hương & Sakura • Lavender & Cherry Blossom</span>
+                        </div>
                         <h2>KẾT NỐI MÁY TÍNH TỪ XA (CLIENT)</h2>
-                        <p class="panel-subtitle">Nhập thông tin máy cần điều khiển hoặc quét tự động trong mạng LAN</p>
+                        <p class="panel-subtitle">Gắn kết hai máy tính êm đềm như những cánh hoa anh đào bay trong gió</p>
                     </div>
                 </div>
 
@@ -496,11 +502,20 @@
 
     <!-- ================= VIEW 4: MÀN HÌNH ĐIỀU KHIỂN REMOTE VIEWER (FULLSCREEN CANVAS) ================= -->
     <div id="remoteViewerModal" class="viewer-modal">
-        <!-- Floating Toolbar -->
-        <header id="floatingToolbar" class="floating-toolbar">
-            <div class="toolbar-drag-handle" title="Kéo hoặc rê chuột để ẩn/hiện thanh công cụ">
-                <span class="drag-bar"></span>
-            </div>
+        <!-- Circular Floating Tool Orb ("T" Button) & Collapsible Island Toolbar -->
+        <div id="floatingToolbarContainer" class="floating-toolbar-container">
+            <!-- Nút tròn hình đóa hoa phát sáng với chữ T viết tắt của Tool -->
+            <button id="btnToolOrb" class="tool-orb-btn" type="button" title="Bấm để mở Bảng Công Cụ Điều Khiển (Tools)">
+                <div class="orb-glow-ring"></div>
+                <div class="orb-core">
+                    <span class="orb-flower-emblem">🌸</span>
+                    <span class="orb-letter">T</span>
+                </div>
+                <span class="orb-tooltip">Bảng Công Cụ (Tool)</span>
+            </button>
+
+            <!-- Khung công cụ mở rộng (Collapsible Toolbar) -->
+            <header id="floatingToolbar" class="floating-toolbar">
 
             <div class="toolbar-content">
                 <div class="toolbar-section stats-group">
@@ -560,13 +575,14 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M12 20v-6M6 20V10M18 20V4"></path>
                             </svg>
-                            <span id="lblQuality">Tiêu Chuẩn (65%)</span>
+                            <span id="lblQuality">Siêu Nét Full HD (90%)</span>
                         </button>
                         <div class="dropdown-menu" id="menuQuality">
                             <button class="menu-item" data-quality="0.40" data-fps="20">Tiết Kiệm (40% - 20 FPS)</button>
-                            <button class="menu-item active" data-quality="0.65" data-fps="30">Tiêu Chuẩn (65% - 30 FPS)</button>
-                            <button class="menu-item" data-quality="0.75" data-fps="45">Mượt Mà (75% - 45 FPS)</button>
-                            <button class="menu-item" data-quality="0.85" data-fps="60">Siêu Mượt 60 FPS HD (85%)</button>
+                            <button class="menu-item" data-quality="0.65" data-fps="30">Tiêu Chuẩn (65% - 30 FPS)</button>
+                            <button class="menu-item" data-quality="0.80" data-fps="45">Mượt Mà (80% - 45 FPS)</button>
+                            <button class="menu-item active" data-quality="0.90" data-fps="30">Siêu Nét Full HD (90% - 30 FPS)</button>
+                            <button class="menu-item" data-quality="0.95" data-fps="30">Gốc Siêu Chi Tiết (95% - 30 FPS)</button>
                         </div>
                     </div>
 
@@ -665,6 +681,7 @@
                 </div>
             </div>
         </header>
+        </div>
 
         <input type="text" id="mobileKeyInput" style="position:fixed;top:-200px;left:-200px;opacity:0;pointer-events:none;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
@@ -707,7 +724,7 @@
     <div id="fileModal" class="modal-backdrop">
         <div class="modal-card file-modal-card">
             <div class="modal-header">
-                <h3>📁 Truyền Tải Tệp Tin Hai Chiều</h3>
+                <h3>🪷 Truyền Tệp Bích Sen (Lotus Sanctuary File Vault)</h3>
                 <button class="btn-close-modal" id="btnCloseFileModal">&times;</button>
             </div>
             <div class="modal-body">

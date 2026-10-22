@@ -1,3 +1,69 @@
+
+/* ================= PETALS CANVAS & FLORAL THEMES ================= */
+.petals-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.92;
+}
+
+.floral-hero-badge {
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.22), rgba(251, 113, 133, 0.12)) !important;
+    border: 1px solid rgba(244, 63, 94, 0.45) !important;
+    box-shadow: 0 4px 20px rgba(244, 63, 94, 0.25) !important;
+    padding: 6px 16px !important;
+    border-radius: var(--radius-full);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rose-dot {
+    background: #f43f5e !important;
+    box-shadow: 0 0 10px #f43f5e !important;
+}
+
+.badge-flower-icon {
+    font-size: 15px;
+    animation: gentleRotate 6s ease-in-out infinite alternate;
+}
+
+@keyframes gentleRotate {
+    0% { transform: rotate(-8deg) scale(0.95); }
+    100% { transform: rotate(12deg) scale(1.1); }
+}
+
+.floral-view-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: var(--radius-full);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    backdrop-filter: blur(12px);
+}
+
+.sunflower-tag {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(251, 191, 36, 0.12));
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    color: #fde68a;
+    box-shadow: 0 4px 18px rgba(245, 158, 11, 0.25);
+}
+
+.lavender-tag {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(244, 114, 182, 0.15));
+    border: 1px solid rgba(192, 132, 252, 0.5);
+    color: #f5d0fe;
+    box-shadow: 0 4px 18px rgba(168, 85, 247, 0.25);
+}
+
 :root {
     /* Modern Rose Gold & Sakura Glassmorphism Theme (Không quá tối, mềm mại, hiện đại) */
     --bg-primary: #19121a;
@@ -1187,39 +1253,142 @@ body {
     display: flex;
 }
 
-/* Floating Toolbar */
-.floating-toolbar {
+/* ================= CIRCULAR FLOATING TOOL ORB ("T") & COLLAPSIBLE TOOLBAR ================= */
+.floating-toolbar-container {
     position: absolute;
-    top: 0;
+    top: 14px;
     left: 50%;
-    transform: translateX(-50%) translateY(-75%);
-    z-index: 2100;
+    transform: translateX(-50%);
+    z-index: 2200;
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: auto;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.floating-toolbar:hover,
-.floating-toolbar.active {
+/* Nút tròn biểu tượng hoa và chữ T */
+.tool-orb-btn {
+    position: relative;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.9), rgba(168, 85, 247, 0.85));
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 6px 25px rgba(244, 63, 94, 0.5), 0 0 15px rgba(251, 113, 133, 0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    outline: none;
+    transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 2210;
+}
+
+.tool-orb-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 32px rgba(244, 63, 94, 0.7), 0 0 24px rgba(255, 255, 255, 0.6);
+}
+
+.tool-orb-btn:active {
+    transform: scale(0.95);
+}
+
+.orb-glow-ring {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 1.5px dashed rgba(251, 113, 133, 0.7);
+    animation: orbSpin 12s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes orbSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.orb-core {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.orb-flower-emblem {
+    position: absolute;
+    font-size: 14px;
+    top: 2px;
+    right: 3px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    opacity: 0.9;
+}
+
+.orb-letter {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 23px;
+    font-weight: 800;
+    color: #ffffff;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 10px rgba(255, 255, 255, 0.8);
+    line-height: 1;
+    transform: translateY(-1px);
+}
+
+.orb-tooltip {
+    position: absolute;
+    top: 115%;
+    left: 50%;
+    transform: translateX(-50%) translateY(6px);
+    background: rgba(20, 10, 25, 0.92);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+
+.tool-orb-btn:hover .orb-tooltip {
+    opacity: 1;
     transform: translateX(-50%) translateY(0);
 }
 
-.toolbar-drag-handle {
-    padding: 4px 24px;
-    cursor: pointer;
+/* Thanh công cụ khi thu gọn (ẩn hoàn toàn, không nhô ra bất kỳ góc nào) */
+.floating-toolbar {
+    position: relative;
+    top: 0;
+    left: 0;
+    transform: translateY(-14px) scale(0.92);
+    z-index: 2200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    margin-top: 10px;
 }
 
-.drag-bar {
-    display: block;
-    width: 44px;
-    height: 5px;
-    background: rgba(255, 255, 255, 0.25);
-    border-radius: var(--radius-full);
+/* Khi container ở trạng thái mở (.expanded) */
+.floating-toolbar-container.expanded .floating-toolbar {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
 }
 
-.floating-toolbar:hover .drag-bar {
-    background: var(--accent-rose);
+.floating-toolbar-container.expanded .tool-orb-btn {
+    border-color: #38bdf8;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(168, 85, 247, 0.85));
+    box-shadow: 0 6px 25px rgba(56, 189, 248, 0.5), 0 0 15px rgba(255, 255, 255, 0.5);
 }
 
 .toolbar-content {
@@ -1351,6 +1520,8 @@ body {
     outline: none;
     cursor: default;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
 }
 
 #remoteCanvas.fit-mode {

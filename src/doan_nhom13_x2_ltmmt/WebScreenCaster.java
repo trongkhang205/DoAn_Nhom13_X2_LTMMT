@@ -106,6 +106,11 @@ public class WebScreenCaster implements Runnable {
                 writeParam.setCompressionQuality(this.quality);
             }
         }
+        this.isFirstFrame = true; // Bat buoc phat lai Keyframe ngay khi doi chat luong de man hinh net tuc thi
+    }
+
+    public void forceKeyframe() {
+        this.isFirstFrame = true;
     }
 
     public void setTargetFps(int fps) {

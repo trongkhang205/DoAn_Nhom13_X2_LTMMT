@@ -143,6 +143,12 @@ public class WebInputHandler {
                     }
                     break;
 
+                case "force_keyframe":
+                    if (screenCaster != null) {
+                        screenCaster.forceKeyframe();
+                    }
+                    break;
+
                 case "clipboard_set":
                     if (data.containsKey("text")) {
                         String text = unescapeJson(data.get("text"));
@@ -275,8 +281,12 @@ public class WebInputHandler {
             case "wheel":
                 if (data.containsKey("deltaY")) {
                     double delta = Double.parseDouble(data.get("deltaY"));
-                    int notches = (int) Math.round(delta > 0 ? 1 : (delta < 0 ? -1 : 0));
-                    if (notches != 0) robot.mouseWheel(notches);
+                    int notches = (int) Math.round(delta);
+                    if (notches != 0) {
+                        // Gioi han toi da 5 notches moi goi tin de tranh giat cuon dot ngot
+                        notches = Math.max(-5, Math.min(5, notches));
+                        robot.mouseWheel(notches);
+                    }
                 }
                 break;
         }
@@ -541,8 +551,8 @@ public class WebInputHandler {
 
         new Thread(() -> {
             try (FileInputStream fis = new FileInputStream(f)) {
-                // Tăng bộ đệm lên 64KB và giảm sleep còn 2ms để đạt tốc độ tối đa
-                byte[] buffer = new byte[64 * 1024];
+                // Tăng bộ đệm lên 128KB để giảm 50% số lượng gói tin và nhường băng thông cho video
+                byte[] buffer = new byte[128 * 1024];
                 long totalSize = f.length();
                 int totalChunks = (int) Math.ceil((double) totalSize / buffer.length);
                 if (totalChunks == 0) totalChunks = 1;
@@ -560,7 +570,7 @@ public class WebInputHandler {
                             ",\"data\":\"" + b64 + "\"}";
                     sendText(msg);
                     chunkIndex++;
-                    Thread.sleep(2);
+                    Thread.sleep(5);
                 }
 
                 sendText("{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");

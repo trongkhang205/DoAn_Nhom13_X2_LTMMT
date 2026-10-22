@@ -70,6 +70,10 @@
     const canvasViewport = document.getElementById('canvasViewport');
     const remoteCanvas = document.getElementById('remoteCanvas');
     const ctx = remoteCanvas.getContext('2d', { alpha: false });
+    if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+    }
     const canvasLoading = document.getElementById('canvasLoading');
     const btnCloseViewer = document.getElementById('btnCloseViewer');
 
@@ -134,6 +138,13 @@
         navItems.forEach(item => {
             item.classList.toggle('active', item.getAttribute('data-view') === viewId);
         });
+
+        // Cập nhật chủ đề cánh hoa bay theo loài hoa của từng trang
+        if (typeof window.setPetalsTheme === 'function') {
+            if (viewId === 'viewMenu') window.setPetalsTheme('rose');
+            else if (viewId === 'viewServer') window.setPetalsTheme('sunflower');
+            else if (viewId === 'viewClient') window.setPetalsTheme('lavender');
+        }
 
         // Nếu chuyển sang tab Server thì cập nhật logs và info ngay
         if (viewId === 'viewServer') {
@@ -774,6 +785,9 @@
 
                     // Mở cửa sổ Remote Viewer toàn màn hình
                     remoteViewerModal.classList.add('active');
+                    if (typeof window.pausePetalsAnimation === 'function') {
+                        window.pausePetalsAnimation(true);
+                    }
                     showToast('Xác thực THÀNH CÔNG! Bắt đầu điều khiển máy tính.', 'success');
 
                     if (msg.width && msg.height) {
@@ -1057,6 +1071,11 @@
         }
         setConnectingButton(false);
         remoteViewerModal.classList.remove('active');
+        if (typeof window.pausePetalsAnimation === 'function') {
+            window.pausePetalsAnimation(false);
+        }
+        const toolbarContainer = document.getElementById('floatingToolbarContainer');
+        if (toolbarContainer) toolbarContainer.classList.remove('expanded');
         canvasLoading.style.display = 'flex';
         valLatency.textContent = '-- ms';
         valFps.textContent = '--';
@@ -1088,6 +1107,23 @@
             if (!isOpen) wrapper.classList.add('open');
         });
     }
+    // Nút tròn hoa chữ "T" (Tool Orb) mở / đóng thanh công cụ
+    const btnToolOrb = document.getElementById('btnToolOrb');
+    const floatingToolbarContainer = document.getElementById('floatingToolbarContainer');
+    if (btnToolOrb && floatingToolbarContainer) {
+        btnToolOrb.addEventListener('click', (e) => {
+            e.stopPropagation();
+            floatingToolbarContainer.classList.toggle('expanded');
+        });
+
+        // Click bên ngoài thanh công cụ để tự động thu gọn lại thành nút tròn T
+        document.addEventListener('click', (e) => {
+            if (!floatingToolbarContainer.contains(e.target)) {
+                floatingToolbarContainer.classList.remove('expanded');
+            }
+        });
+    }
+
     setupDropdown(btnQualityDropdown, menuQuality);
     setupDropdown(btnSpecialKeys, menuSpecialKeys);
     if (btnScreenDropdown && menuScreens) {
@@ -1108,6 +1144,7 @@
             lblQuality.textContent = item.textContent;
             sendJson({ type: 'quality', value: qualityVal });
             sendJson({ type: 'target_fps', value: fpsVal });
+            sendJson({ type: 'force_keyframe' }); // Ép làm mới tức thì toàn bộ màn hình siêu sắc nét
             showToast(`Đã chuyển: ${item.textContent}`, 'info');
         });
     });
@@ -1227,10 +1264,22 @@
 
     remoteCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    let wheelAccumulator = 0;
+    let wheelTimer = null;
     remoteCanvas.addEventListener('wheel', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
         e.preventDefault();
-        sendJson({ type: 'mouse', action: 'wheel', deltaY: e.deltaY });
+        wheelAccumulator += e.deltaY;
+        if (!wheelTimer) {
+            wheelTimer = setTimeout(() => {
+                if (wheelAccumulator !== 0) {
+                    const notches = Math.round(wheelAccumulator / 45) || (wheelAccumulator > 0 ? 1 : -1);
+                    sendJson({ type: 'mouse', action: 'wheel', deltaY: notches });
+                    wheelAccumulator = 0;
+                }
+                wheelTimer = null;
+            }, 35); // Điều tiết 35ms dồn bước cuộn mượt mà, triệt tiêu delay và nghẽn gói tin
+        }
     }, { passive: false });
 
     window.addEventListener('keydown', (e) => {
@@ -1660,28 +1709,31 @@
         });
     }
 
+    function base64ToUint8Array(b64) {
+        const bin = atob(b64);
+        const len = bin.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = bin.charCodeAt(i);
+        }
+        return bytes;
+    }
+
     function handleDownloadChunk(msg) {
         if (!downloadFileChunks[msg.name]) downloadFileChunks[msg.name] = [];
-        downloadFileChunks[msg.name].push(msg.data);
+        try {
+            downloadFileChunks[msg.name].push(base64ToUint8Array(msg.data));
+        } catch (e) {
+            console.error('Lỗi giải mã chunk tệp:', e);
+        }
     }
 
     function finalizeFileDownload(fileName) {
         const chunks = downloadFileChunks[fileName];
-        if (!chunks) return;
+        if (!chunks || chunks.length === 0) return;
 
-        const byteArrays = [];
-        for (let i = 0; i < chunks.length; i++) {
-            const b64 = chunks[i];
-            const binaryString = atob(b64);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let j = 0; j < len; j++) {
-                bytes[j] = binaryString.charCodeAt(j);
-            }
-            byteArrays.push(bytes);
-        }
-
-        const blob = new Blob(byteArrays);
+        // Tạo trực tiếp Blob từ mảng Uint8Array trong 1ms, không bị đơ 1-2 phút
+        const blob = new Blob(chunks, { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1689,7 +1741,7 @@
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
         delete downloadFileChunks[fileName];
 
         if (downloadResolvers[fileName]) {
@@ -2262,4 +2314,144 @@
             sendJson({ type: 'audio_toggle', enabled: isAudioEnabled });
             showToast(isAudioEnabled ? 'Đã bật âm thanh máy từ xa' : 'Đã tắt tiếng (Mute) âm thanh', 'info');
         });
+    }
+
+
+    // ================= FLYING PETALS PARTICLE SYSTEM (CÁNH HOA BAY TRONG GIÓ) =================
+    function initPetalsCanvas() {
+        const canvas = document.getElementById('petalsCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        const themes = {
+            rose: [
+                'rgba(244, 63, 94, 0.75)',
+                'rgba(251, 113, 133, 0.85)',
+                'rgba(225, 29, 72, 0.70)',
+                'rgba(254, 205, 211, 0.65)'
+            ],
+            sunflower: [
+                'rgba(245, 158, 11, 0.80)',
+                'rgba(251, 191, 36, 0.85)',
+                'rgba(217, 119, 6, 0.70)',
+                'rgba(254, 240, 138, 0.75)'
+            ],
+            lavender: [
+                'rgba(192, 132, 252, 0.80)',
+                'rgba(244, 114, 182, 0.80)',
+                'rgba(168, 85, 247, 0.70)',
+                'rgba(245, 208, 254, 0.75)'
+            ],
+            lotus: [
+                'rgba(244, 63, 94, 0.75)',
+                'rgba(52, 211, 153, 0.65)',
+                'rgba(56, 189, 248, 0.60)',
+                'rgba(253, 226, 243, 0.80)'
+            ]
+        };
+
+        let currentTheme = 'rose';
+        let isPaused = false;
+
+        window.setPetalsTheme = function(themeName) {
+            if (themes[themeName]) {
+                currentTheme = themeName;
+                petals.forEach(p => {
+                    p.colors = themes[currentTheme];
+                    p.color = p.colors[Math.floor(Math.random() * p.colors.length)];
+                });
+            }
+        };
+
+        window.pausePetalsAnimation = function(paused) {
+            isPaused = paused;
+        };
+
+        const PETAL_COUNT = window.innerWidth < 768 ? 22 : 40;
+        const petals = [];
+
+        function createPetal(randomY = true) {
+            const colors = themes[currentTheme];
+            return {
+                x: Math.random() * width,
+                y: randomY ? Math.random() * height : -20,
+                size: 8 + Math.random() * 11,
+                speedY: 0.8 + Math.random() * 1.3,
+                speedX: -0.4 + Math.random() * 1.1,
+                angle: Math.random() * 360,
+                angularSpeed: (Math.random() - 0.5) * 1.8,
+                wobble: Math.random() * Math.PI * 2,
+                wobbleSpeed: 0.02 + Math.random() * 0.03,
+                flip: Math.random() * Math.PI,
+                flipSpeed: 0.015 + Math.random() * 0.025,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                opacity: 0.5 + Math.random() * 0.45
+            };
+        }
+
+        for (let i = 0; i < PETAL_COUNT; i++) {
+            petals.push(createPetal(true));
+        }
+
+        function drawPetal(p) {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate((p.angle * Math.PI) / 180);
+            ctx.scale(Math.cos(p.flip), 1);
+
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.moveTo(0, -p.size);
+            ctx.bezierCurveTo(p.size * 0.7, -p.size * 0.5, p.size * 0.8, p.size * 0.6, 0, p.size);
+            ctx.bezierCurveTo(-p.size * 0.8, p.size * 0.6, -p.size * 0.7, -p.size * 0.5, 0, -p.size);
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(0, -p.size * 0.7);
+            ctx.lineTo(0, p.size * 0.7);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function animatePetals() {
+            requestAnimationFrame(animatePetals);
+            if (isPaused) return;
+
+            ctx.clearRect(0, 0, width, height);
+
+            for (let i = 0; i < petals.length; i++) {
+                const p = petals[i];
+                p.y += p.speedY;
+                p.x += p.speedX + Math.sin(p.wobble) * 0.7;
+                p.wobble += p.wobbleSpeed;
+                p.flip += p.flipSpeed;
+                p.angle += p.angularSpeed;
+
+                drawPetal(p);
+
+                if (p.y > height + 25 || p.x > width + 25 || p.x < -25) {
+                    petals[i] = createPetal(false);
+                }
+            }
+        }
+
+        animatePetals();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPetalsCanvas);
+    } else {
+        setTimeout(initPetalsCanvas, 100);
     }
