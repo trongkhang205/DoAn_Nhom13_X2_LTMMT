@@ -21,12 +21,12 @@ public class DoAn_Nhom13_X2_LTMMT {
 
             JFrame launcherFrame = new JFrame("Đồ Án Nhóm 13 - Ứng Dụng Remote Desktop");
             launcherFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            launcherFrame.setSize(540, 390);
+            launcherFrame.setSize(560, 450);
             launcherFrame.setLocationRelativeTo(null);
             launcherFrame.setResizable(false);
 
             JPanel mainPanel = new JPanel(new BorderLayout(15, 15));
-            mainPanel.setBorder(new EmptyBorder(25, 25, 25, 25));
+            mainPanel.setBorder(new EmptyBorder(20, 25, 20, 25));
             mainPanel.setBackground(new Color(248, 250, 252));
 
             // Header
@@ -45,10 +45,27 @@ public class DoAn_Nhom13_X2_LTMMT {
             mainPanel.add(header, BorderLayout.NORTH);
 
             // Nút chức năng
-            JPanel center = new JPanel(new GridLayout(4, 1, 10, 10));
+            JPanel center = new JPanel(new GridLayout(5, 1, 10, 10));
             center.setOpaque(false);
 
-            JButton btnWeb = new JButton("🌐 KHỞI CHẠY NỀN TẢNG WEB TOÀN DIỆN (HTTP://LOCALHOST:8080)");
+            JButton btnInternet = new JButton("🚀 KẾT NỐI INTERNET 4G (TỰ ĐỘNG BẬT CẦU NỐI & TẠO LINK)");
+            btnInternet.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            btnInternet.setForeground(new Color(13, 148, 136));
+            btnInternet.setFocusPainted(false);
+            btnInternet.addActionListener(e -> {
+                WebRemoteServer webServer = new WebRemoteServer(8080, null, null);
+                new Thread(webServer, "WebRemoteServer-Thread").start();
+                webServer.startInternetTunnel();
+
+                try {
+                    Thread.sleep(800);
+                    Desktop.getDesktop().browse(new java.net.URI("http://localhost:8080"));
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(launcherFrame, "Vui lòng mở trình duyệt tại: http://localhost:8080");
+                }
+            });
+
+            JButton btnWeb = new JButton("🌐 KHỞI CHẠY WEB PLATFORM (MẠNG LAN / LOCALHOST:8080)");
             btnWeb.setFont(new Font("Segoe UI", Font.BOLD, 13));
             btnWeb.setForeground(new Color(67, 56, 202));
             btnWeb.setFocusPainted(false);
@@ -66,7 +83,7 @@ public class DoAn_Nhom13_X2_LTMMT {
                 }
             });
 
-            JButton btnServer = new JButton("► KHỞI CHẠY MÁY CHỦ (SERVER - MÁY BỊ ĐIỀU KHIỂN)");
+            JButton btnServer = new JButton("► KHỞI CHẠY GIAO DIỆN DESKTOP SERVER (MÁY BỊ ĐIỀU KHIỂN)");
             btnServer.setFont(new Font("Segoe UI", Font.BOLD, 13));
             btnServer.setForeground(Color.BLACK);
             btnServer.setFocusPainted(false);
@@ -74,7 +91,7 @@ public class DoAn_Nhom13_X2_LTMMT {
                 new ServerDashboard().setVisible(true);
             });
 
-            JButton btnClient = new JButton("► KHỞI CHẠY MÁY KHÁCH (CLIENT - MÁY ĐI ĐIỀU KHIỂN)");
+            JButton btnClient = new JButton("► KHỞI CHẠY GIAO DIỆN DESKTOP CLIENT (MÁY ĐI ĐIỀU KHIỂN)");
             btnClient.setFont(new Font("Segoe UI", Font.BOLD, 13));
             btnClient.setForeground(Color.BLACK);
             btnClient.setFocusPainted(false);
@@ -82,7 +99,7 @@ public class DoAn_Nhom13_X2_LTMMT {
                 new ClientDashboard().setVisible(true);
             });
 
-            JButton btnBoth = new JButton("⇄ CHẠY TEST LOCALHOST (MỞ CẢ SERVER & CLIENT)");
+            JButton btnBoth = new JButton("⇄ CHẠY TEST LOCALHOST (MỞ CẢ 2 PHÍA TRÊN MỘT MÁY)");
             btnBoth.setFont(new Font("Segoe UI", Font.BOLD, 13));
             btnBoth.setForeground(Color.BLACK);
             btnBoth.setFocusPainted(false);
@@ -96,6 +113,7 @@ public class DoAn_Nhom13_X2_LTMMT {
                 client.setLocation(750, 150);
             });
 
+            center.add(btnInternet);
             center.add(btnWeb);
             center.add(btnServer);
             center.add(btnClient);
