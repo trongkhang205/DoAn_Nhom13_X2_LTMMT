@@ -1830,7 +1830,7 @@
 
             // Laptop Group
             const laptopGroup = new THREE.Group();
-            laptopGroup.position.set(0, -0.15, 0);
+            laptopGroup.position.set(0, -0.32, 0);
 
             // 1. Laptop Base
             const baseGeo = new THREE.BoxGeometry(3.1, 0.12, 2.1);
@@ -1851,10 +1851,18 @@
             padMesh.position.set(0, 0.005, 0.9);
             laptopGroup.add(padMesh);
 
-            // 2. Laptop Lid (Tilted back 105 deg)
+            // Keyboard Area
+            const kbGeo = new THREE.PlaneGeometry(2.7, 1.15);
+            const kbMat = new THREE.MeshStandardMaterial({ color: 0x140e1c, roughness: 0.6, metalness: 0.3 });
+            const kbMesh = new THREE.Mesh(kbGeo, kbMat);
+            kbMesh.rotation.x = -Math.PI / 2;
+            kbMesh.position.set(0, 0.005, -0.05);
+            laptopGroup.add(kbMesh);
+
+            // 2. Laptop Lid (Góc mở chuẩn 106 độ thanh thoát, hướng thẳng về camera)
             const lidGroup = new THREE.Group();
             lidGroup.position.set(0, 0, -0.85);
-            lidGroup.rotation.x = -1.82;
+            lidGroup.rotation.x = -0.28;
 
             const lidCasingGeo = new THREE.BoxGeometry(3.1, 2.05, 0.07);
             const lidCasing = new THREE.Mesh(lidCasingGeo, darkMetal);
@@ -1938,9 +1946,9 @@
                 // Smooth floating motion
                 laptopGroup.position.y = -0.15 + Math.sin(t * 1.8) * 0.08;
                 
-                // Parallax smoothing
-                const targetRotX = mouseY * 0.28 + 0.12;
-                const targetRotY = mouseX * 0.38 + Math.sin(t * 0.5) * 0.08;
+                // Parallax smoothing với góc nhìn 3/4 isometric cao cấp
+                const targetRotX = mouseY * 0.22 + 0.18;
+                const targetRotY = mouseX * 0.32 - 0.28 + Math.sin(t * 0.5) * 0.06;
                 laptopGroup.rotation.x += (targetRotX - laptopGroup.rotation.x) * 0.06;
                 laptopGroup.rotation.y += (targetRotY - laptopGroup.rotation.y) * 0.06;
 

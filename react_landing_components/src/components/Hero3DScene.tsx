@@ -61,8 +61,8 @@ function FloatingComputer({ mouse }: { mouse: React.MutableRefObject<{ x: number
         <meshStandardMaterial color="#161020" roughness={0.6} />
       </mesh>
 
-      {/* LAPTOP SCREEN LID (Tilted back ~105 deg) */}
-      <group position={[0, 0, -0.75]} rotation={[-1.85, 0, 0]}>
+      {/* LAPTOP SCREEN LID (Tilted back ~106 deg natural open angle) */}
+      <group position={[0, 0, -0.75]} rotation={[-0.28, 0, 0]}>
         {/* Lid Casing */}
         <RoundedBox args={[3.2, 2.1, 0.08]} radius={0.06} smoothness={4} position={[0, 1.05, 0]}>
           <meshStandardMaterial color="#1a1424" roughness={0.25} metalness={0.85} />
