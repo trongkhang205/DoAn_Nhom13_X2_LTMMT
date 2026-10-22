@@ -1666,6 +1666,252 @@
         console.warn('Lỗi phân tích URL params:', e);
     }
 
+
+    // ================= THEME TOGGLE (LIGHT & DARK MODE) =================
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    const initTheme = () => {
+        const savedTheme = localStorage.getItem('remote_app_theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    };
+    initTheme();
+
+    if (btnThemeToggle) {
+        btnThemeToggle.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('remote_app_theme', next);
+            showToast(`Đã chuyển sang giao diện ${next === 'dark' ? 'Tối (Dark Mode)' : 'Sáng (Light Mode)'}`, 'info');
+        });
+    }
+
+    // ================= HERO CTA BUTTON SCROLL =================
+    const btnHeroStart = document.getElementById('btnHeroStart');
+    if (btnHeroStart) {
+        btnHeroStart.addEventListener('click', () => {
+            const headerEl = document.getElementById('launcherSectionHeader');
+            if (headerEl) {
+                headerEl.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+    }
+
+    // ================= 3D TILT EFFECT ON CARDS =================
+    const launcherCards = document.querySelectorAll('.launcher-card');
+    launcherCards.forEach(card => {
+        card.addEventListener('mousemove', (e) => {
+            const rect = card.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const xPct = (x / rect.width) - 0.5;
+            const yPct = (y / rect.height) - 0.5;
+            card.style.transform = `perspective(1000px) rotateX(${-yPct * 14}deg) rotateY(${xPct * 14}deg) translateY(-4px)`;
+        });
+
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0px)';
+        });
+    });
+
+    // ================= 3D HERO CANVAS ENGINE (THREE.JS) =================
+    function initHero3DScene() {
+        const canvas = document.getElementById('hero3dCanvas');
+        const fallback = document.getElementById('hero3dFallback');
+        if (!canvas) return;
+
+        // Fallback if Three.js CDN is unavailable
+        if (typeof THREE === 'undefined') {
+            if (fallback) fallback.style.display = 'block';
+            return;
+        }
+
+        const isMobileScreen = window.innerWidth < 768;
+
+        try {
+            const scene = new THREE.Scene();
+            const width = canvas.clientWidth || 400;
+            const height = canvas.clientHeight || 380;
+            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+            camera.position.set(0, 1.2, 5.4);
+
+            const renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                alpha: true,
+                antialias: !isMobileScreen,
+                powerPreference: 'high-performance'
+            });
+            renderer.setSize(width, height, false);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            // Lights
+            const ambient = new THREE.AmbientLight(0xffffff, 0.95);
+            scene.add(ambient);
+
+            const dirLight = new THREE.DirectionalLight(0xfff0f5, 1.4);
+            dirLight.position.set(4, 6, 3);
+            scene.add(dirLight);
+
+            const pinkPoint = new THREE.PointLight(0xec4899, 2.5, 15);
+            pinkPoint.position.set(-3, 2, 2);
+            scene.add(pinkPoint);
+
+            const cyanPoint = new THREE.PointLight(0x38bdf8, 2.2, 15);
+            cyanPoint.position.set(3, -1, 2);
+            scene.add(cyanPoint);
+
+            // Laptop Group
+            const laptopGroup = new THREE.Group();
+            laptopGroup.position.set(0, -0.15, 0);
+
+            // 1. Laptop Base
+            const baseGeo = new THREE.BoxGeometry(3.1, 0.12, 2.1);
+            const darkMetal = new THREE.MeshStandardMaterial({
+                color: 0x1a1222,
+                roughness: 0.3,
+                metalness: 0.8
+            });
+            const baseMesh = new THREE.Mesh(baseGeo, darkMetal);
+            baseMesh.position.set(0, -0.06, 0.2);
+            laptopGroup.add(baseMesh);
+
+            // Trackpad
+            const padGeo = new THREE.PlaneGeometry(0.85, 0.5);
+            const padMat = new THREE.MeshStandardMaterial({ color: 0x281c34, roughness: 0.5 });
+            const padMesh = new THREE.Mesh(padGeo, padMat);
+            padMesh.rotation.x = -Math.PI / 2;
+            padMesh.position.set(0, 0.005, 0.9);
+            laptopGroup.add(padMesh);
+
+            // 2. Laptop Lid (Tilted back 105 deg)
+            const lidGroup = new THREE.Group();
+            lidGroup.position.set(0, 0, -0.85);
+            lidGroup.rotation.x = -1.82;
+
+            const lidCasingGeo = new THREE.BoxGeometry(3.1, 2.05, 0.07);
+            const lidCasing = new THREE.Mesh(lidCasingGeo, darkMetal);
+            lidCasing.position.set(0, 1.025, 0);
+            lidGroup.add(lidCasing);
+
+            // Glowing Screen
+            const screenGeo = new THREE.PlaneGeometry(2.85, 1.78);
+            const screenMat = new THREE.MeshStandardMaterial({
+                color: 0x0f172a,
+                emissive: 0xec4899,
+                emissiveIntensity: 0.85,
+                roughness: 0.2
+            });
+            const screenMesh = new THREE.Mesh(screenGeo, screenMat);
+            screenMesh.position.set(0, 1.025, 0.04);
+            lidGroup.add(screenMesh);
+
+            // Top Status Bar on Screen
+            const barGeo = new THREE.PlaneGeometry(2.7, 0.12);
+            const barMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
+            const barMesh = new THREE.Mesh(barGeo, barMat);
+            barMesh.position.set(0, 1.76, 0.045);
+            lidGroup.add(barMesh);
+
+            laptopGroup.add(lidGroup);
+
+            // 3. Torus Orbit Wireframe Rings
+            const ringGeo1 = new THREE.TorusGeometry(2.4, 0.012, 16, 80);
+            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0xf43f5e, wireframe: true, transparent: true, opacity: 0.6 });
+            const ring1 = new THREE.Mesh(ringGeo1, ringMat1);
+            ring1.rotation.x = Math.PI / 3;
+            ring1.position.set(0, 0.8, 0);
+            laptopGroup.add(ring1);
+
+            const ringGeo2 = new THREE.TorusGeometry(2.7, 0.01, 16, 80);
+            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.5 });
+            const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
+            ring2.rotation.x = -Math.PI / 4;
+            ring2.rotation.y = Math.PI / 6;
+            ring2.position.set(0, 0.8, 0);
+            laptopGroup.add(ring2);
+
+            scene.add(laptopGroup);
+
+            // 4. Floating Particles
+            const particleCount = isMobileScreen ? 60 : 160;
+            const pGeo = new THREE.BufferGeometry();
+            const pPos = new Float32Array(particleCount * 3);
+            for (let i = 0; i < particleCount; i++) {
+                pPos[i * 3] = (Math.random() - 0.5) * 10;
+                pPos[i * 3 + 1] = (Math.random() - 0.5) * 7;
+                pPos[i * 3 + 2] = (Math.random() - 0.5) * 7;
+            }
+            pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+            const pMat = new THREE.PointsMaterial({
+                color: 0xf472b6,
+                size: 0.06,
+                transparent: true,
+                opacity: 0.8
+            });
+            const particles = new THREE.Points(pGeo, pMat);
+            scene.add(particles);
+
+            // Mouse parallax
+            let mouseX = 0, mouseY = 0;
+            window.addEventListener('mousemove', (e) => {
+                const cx = window.innerWidth / 2;
+                const cy = window.innerHeight / 2;
+                mouseX = (e.clientX - cx) / cx;
+                mouseY = (e.clientY - cy) / cy;
+            });
+
+            // Animation Loop
+            let clock = new THREE.Clock();
+
+            function animate() {
+                requestAnimationFrame(animate);
+                const t = clock.getElapsedTime();
+
+                // Smooth floating motion
+                laptopGroup.position.y = -0.15 + Math.sin(t * 1.8) * 0.08;
+                
+                // Parallax smoothing
+                const targetRotX = mouseY * 0.28 + 0.12;
+                const targetRotY = mouseX * 0.38 + Math.sin(t * 0.5) * 0.08;
+                laptopGroup.rotation.x += (targetRotX - laptopGroup.rotation.x) * 0.06;
+                laptopGroup.rotation.y += (targetRotY - laptopGroup.rotation.y) * 0.06;
+
+                // Orbit rings rotation
+                ring1.rotation.z += 0.008;
+                ring2.rotation.z -= 0.006;
+
+                // Screen emissive pulse
+                screenMat.emissiveIntensity = 0.8 + Math.sin(t * 3.2) * 0.25;
+
+                // Particles rotation
+                particles.rotation.y += 0.002;
+                particles.rotation.x = Math.sin(t * 0.2) * 0.05;
+
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            // Resize listener
+            window.addEventListener('resize', () => {
+                const w = canvas.clientWidth;
+                const h = canvas.clientHeight;
+                if (w && h) {
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(w, h, false);
+                }
+            });
+        } catch (err) {
+            console.warn('Three.js 3D Canvas error:', err);
+            if (fallback) fallback.style.display = 'block';
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initHero3DScene);
+    } else {
+        setTimeout(initHero3DScene, 100);
+    }
+
     // Khởi chạy ban đầu: Lấy server-info
     fetchServerInfo();
 })();

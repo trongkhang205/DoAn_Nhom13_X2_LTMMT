@@ -310,7 +310,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                     socket.close();
                 }
             } else {
-                handleHttpRequest(requestLine, headers, in, out);
+                handleHttpRequest(requestLine, headers, in, out, socket.getInetAddress());
                 socket.close();
             }
         } catch (Exception e) {
@@ -320,15 +320,19 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         }
     }
 
-    private void handleHttpRequest(String requestLine, Map<String, String> headers, InputStream in, OutputStream out) throws IOException {
+    private void handleHttpRequest(String requestLine, Map<String, String> headers, InputStream in, OutputStream out, java.net.InetAddress clientAddr) throws IOException {
         String[] parts = requestLine.split(" ");
         String method = parts.length > 0 ? parts[0].toUpperCase() : "GET";
         String uri = parts.length > 1 ? parts[1] : "/";
 
-        // 1. API: Thông tin máy chủ
+        // Kiểm tra quyền: Chỉ Localhost mới được phép xem mật khẩu hoặc đổi cấu hình máy chủ
+        boolean isLocal = clientAddr != null && (clientAddr.isLoopbackAddress() || "127.0.0.1".equals(clientAddr.getHostAddress()) || (localIp != null && localIp.equals(clientAddr.getHostAddress())));
+
+        // 1. API: Thông tin máy chủ (Bảo mật: Chỉ trả mật khẩu cho Localhost)
         if (uri.startsWith("/api/server-info")) {
+            String exposedPass = isLocal ? password : "";
             String json = "{\"ip\":\"" + localIp + "\",\"port\":" + port 
-                    + ",\"password\":\"" + password + "\",\"isSharingEnabled\":" + isSharingEnabled 
+                    + ",\"password\":\"" + exposedPass + "\",\"isSharingEnabled\":" + isSharingEnabled 
                     + ",\"activeClients\":" + activeClients.get()
                     + ",\"deviceId\":\"" + deviceId + "\",\"formattedDeviceId\":\"" + GatewayConnector.formatDeviceId(deviceId) + "\""
                     + ",\"isTunnelActive\":" + isTunnelActive
@@ -337,8 +341,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
-        // 2. API: Bật/Tắt Cầu Nối Internet 4G (Cloudflare Tunnel Tích Hợp)
+        // 2. API: Bật/Tắt Cầu Nối Internet 4G (Bảo mật: Chỉ Localhost)
         if (uri.startsWith("/api/tunnel-toggle")) {
+            if (!isLocal) {
+                sendJsonResponse(out, "{\"success\":false,\"message\":\"Tu choi: Thao tac chi cho phep tu Localhost!\"}");
+                return;
+            }
             if (isTunnelActive) {
                 stopInternetTunnel();
             } else {
@@ -348,8 +356,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
-        // 3. API: Sinh mật khẩu mới
+        // 3. API: Sinh mật khẩu mới (Bảo mật: Chỉ Localhost)
         if (uri.startsWith("/api/server-genpass")) {
+            if (!isLocal) {
+                sendJsonResponse(out, "{\"success\":false,\"message\":\"Tu choi: Thao tac chi cho phep tu Localhost!\"}");
+                return;
+            }
             this.password = generateRandomPassword();
             appendLog("Đã đổi mật khẩu máy chủ mới: " + this.password);
             sendJsonResponse(out, "{\"success\":true,\"password\":\"" + this.password + "\"}");

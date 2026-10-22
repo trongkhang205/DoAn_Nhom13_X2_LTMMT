@@ -56,6 +56,22 @@
         </nav>
 
         <div class="nav-status">
+            <button class="btn-theme-toggle" id="btnThemeToggle" title="Chuyển chế độ Sáng / Tối" aria-label="Toggle Theme">
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+            </button>
             <span class="server-badge" id="navServerBadge">
                 <span class="status-dot dot-green" id="serverStateDot"></span>
                 <span id="navServerStatusText">Server: Sẵn Sàng (Port 8080)</span>
@@ -68,11 +84,68 @@
 
         <!-- ================= VIEW 1: MENU CHÍNH (LAUNCHER) ================= -->
         <section class="view-panel active" id="viewMenu">
-            <div class="menu-hero">
-                <h1 class="hero-title">HỆ THỐNG ĐIỀU KHIỂN MÁY TÍNH TỪ XA</h1>
-                <p class="hero-subtitle">Mô phỏng kiến trúc hoạt động hoàn toàn trên trình duyệt Web</p>
+            <!-- Cyberpunk Grid & Glowing Background Elements -->
+            <div class="cyber-grid-bg" aria-hidden="true"></div>
+            <div class="glow-orb orb-1" aria-hidden="true"></div>
+            <div class="glow-orb orb-2" aria-hidden="true"></div>
+            <div class="glow-orb orb-3" aria-hidden="true"></div>
+
+            <!-- HERO 3D LANDING SECTION -->
+            <div class="hero-3d-layout">
+                <div class="hero-text-col">
+                    <div class="hero-badge">
+                        <span class="badge-dot"></span>
+                        <svg class="badge-sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07l14.14-14.14"/>
+                        </svg>
+                        <span>NEXT-GEN WEB REMOTE DESKTOP 2.0</span>
+                    </div>
+                    <h1 class="hero-title">
+                        HỆ THỐNG ĐIỀU KHIỂN<br>
+                        <span class="gradient-text">MÁY TÍNH TỪ XA</span>
+                    </h1>
+                    <p class="hero-subtitle">
+                        Mô phỏng kiến trúc hoạt động hoàn toàn trên trình duyệt Web. Trải nghiệm mượt mà <strong>60 FPS HD</strong>, truyền tệp siêu tốc <strong>128KB Multi-file</strong> và kết nối 4G Internet chỉ với 1 click.
+                    </p>
+                    <div class="hero-pills">
+                        <span class="hero-pill"><span class="pill-icon">⚡</span> Delta Diffing &lt; 0.8ms</span>
+                        <span class="hero-pill"><span class="pill-icon">🛡️</span> RFC 6455 Native WebSocket</span>
+                        <span class="hero-pill"><span class="pill-icon">🚀</span> 60 FPS Ultra Streaming</span>
+                    </div>
+                    <div class="hero-cta-group">
+                        <button class="btn-hero-cta" id="btnHeroStart">
+                            <span class="cta-gradient-glow"></span>
+                            <span class="cta-shimmer"></span>
+                            <span class="cta-content">
+                                <span>BẮT ĐẦU NGAY</span>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    <polyline points="12 5 19 12 12 19"></polyline>
+                                </svg>
+                            </span>
+                        </button>
+                        <a href="#launcherSectionHeader" class="btn-hero-secondary">
+                            <span>Khám Phá Chức Năng</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="hero-3d-col" id="hero3dWrapper">
+                    <canvas id="hero3dCanvas" class="hero-canvas"></canvas>
+                    <div class="hero-3d-fallback" id="hero3dFallback" style="display:none;">
+                        <div class="fallback-icon-box">💻</div>
+                        <h3>Màn Hình Máy Tính Ảo 3D</h3>
+                        <p>Trải nghiệm điều khiển từ xa mượt mà trên mọi thiết bị.</p>
+                    </div>
+                </div>
             </div>
 
+            <!-- SECTION HEADER -->
+            <div class="section-title-wrap" id="launcherSectionHeader">
+                <span class="section-kicker">MODULES HỆ THỐNG</span>
+                <h2 class="section-heading">Chọn Chế Độ Vận Hành</h2>
+                <p class="section-subtext">Khởi chạy máy chủ để chia sẻ màn hình hoặc dùng máy khách kết nối điều khiển an toàn qua trình duyệt.</p>
+            </div>
             <div class="launcher-grid">
                 <!-- Card 1: Máy Chủ -->
                 <div class="launcher-card" id="cardLaunchServer">
@@ -661,6 +734,8 @@
     <!-- Khay Toast thông báo -->
     <div id="toastContainer" class="toast-container"></div>
 
+    <!-- Three.js CDN for High-Performance 3D Canvas Scene -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="app.js"></script>
 </body>
 
