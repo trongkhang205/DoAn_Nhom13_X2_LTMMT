@@ -121,6 +121,10 @@ wss.on('connection', (ws, req) => {
                 if (host && host.clients) {
                     host.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
+                            // CHỐNG TRỄ 4G: Nếu client tải chậm và buffer > 128KB, bỏ qua khung hình cũ
+                            if (client.bufferedAmount > 128 * 1024) {
+                                return;
+                            }
                             client.send(data, { binary: true });
                         }
                     });
@@ -158,7 +162,18 @@ wss.on('connection', (ws, req) => {
             if (msg.type === 'join_host') {
                 role = 'client';
                 currentDeviceId = String(msg.id).trim().replace(/\s+/g, '');
-                const host = hosts.get(currentDeviceId);
+                let host = hosts.get(currentDeviceId);
+
+                // Ghép cặp thông minh nếu Gateway hiện chỉ có đúng 1 Host Online (tránh ID cũ trong link URL khi restart server)
+                if ((!host || !host.ws || host.ws.readyState !== WebSocket.OPEN) && hosts.size === 1) {
+                    const onlyHostId = hosts.keys().next().value;
+                    const onlineHost = hosts.get(onlyHostId);
+                    if (onlineHost && onlineHost.ws && onlineHost.ws.readyState === WebSocket.OPEN) {
+                        console.log(`[Smart Pairing] ID yêu cầu (${currentDeviceId}) không khớp nhưng Gateway có duy nhất Host [${onlyHostId}]. Tự động ghép nối!`);
+                        currentDeviceId = onlyHostId;
+                        host = onlineHost;
+                    }
+                }
 
                 if (!host || !host.ws || host.ws.readyState !== WebSocket.OPEN) {
                     console.log(`[Join Failed] Host ID: ${currentDeviceId} không tìm thấy hoặc offline. Total hosts: ${hosts.size}`);

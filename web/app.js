@@ -625,7 +625,7 @@
                 sendJson({
                     type: 'join_host',
                     id: deviceId,
-                    password: password
+                    password: (password || '').trim().toLowerCase()
                 });
             };
 
@@ -767,7 +767,7 @@
                         const statE2ee = document.getElementById('statE2ee');
                         if (statE2ee) statE2ee.style.display = 'inline-flex';
                         if (!e2eeCryptoKey) {
-                            const pass = clientTargetPass ? clientTargetPass.value.trim() : '';
+                            const pass = clientTargetPass ? clientTargetPass.value.trim().toLowerCase() : '';
                             if (pass) deriveE2eeKey(pass);
                         }
                     }
@@ -876,7 +876,7 @@
         if (firstByte === 0xEE) {
             if (!e2eeCryptoKey) {
                 // Tự động dẫn xuất khóa nếu chưa có
-                const pass = clientTargetPass ? clientTargetPass.value.trim() : '';
+                const pass = clientTargetPass ? clientTargetPass.value.trim().toLowerCase() : '';
                 if (pass) {
                     await deriveE2eeKey(pass);
                 }
@@ -935,29 +935,53 @@
             valResolution.textContent = `${w}x${h}`;
         }
 
-        const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
+        function updateFpsCounter() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                currentFps = Math.round((frameCount * 1000) / (now - lastFpsTime));
+                valFps.textContent = currentFps;
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+        }
 
-        createImageBitmap(blob)
-            .then(bitmap => {
-                // Vẽ đúng vùng thay đổi (Delta Frame) hoặc vẽ toàn bộ khung nhìn (Full Frame)
-                ctx.drawImage(bitmap, targetX, targetY, targetW, targetH);
-                bitmap.close();
-
+        function drawWithImageFallback(blobData, tx, ty, tw, th) {
+            const url = URL.createObjectURL(blobData);
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, tx, ty, tw, th);
+                URL.revokeObjectURL(url);
                 if (canvasLoading.style.display !== 'none') {
                     canvasLoading.style.display = 'none';
                 }
+                updateFpsCounter();
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        }
 
-                // Đo FPS thời gian thực
-                frameCount++;
-                const now = performance.now();
-                if (now - lastFpsTime >= 1000) {
-                    currentFps = Math.round((frameCount * 1000) / (now - lastFpsTime));
-                    valFps.textContent = currentFps;
-                    frameCount = 0;
-                    lastFpsTime = now;
-                }
-            })
-            .catch(() => {});
+        const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
+
+        if (window.createImageBitmap) {
+            createImageBitmap(blob)
+                .then(bitmap => {
+                    ctx.drawImage(bitmap, targetX, targetY, targetW, targetH);
+                    bitmap.close();
+
+                    if (canvasLoading.style.display !== 'none') {
+                        canvasLoading.style.display = 'none';
+                    }
+                    updateFpsCounter();
+                })
+                .catch(err => {
+                    drawWithImageFallback(blob, targetX, targetY, targetW, targetH);
+                });
+        } else {
+            drawWithImageFallback(blob, targetX, targetY, targetW, targetH);
+        }
     }
 
     // Đóng Viewer / Ngắt kết nối
@@ -2077,9 +2101,10 @@
         try {
             if (!window.crypto || !window.crypto.subtle) return null;
             const enc = new TextEncoder();
+            const normalized = (password || '').trim().toLowerCase();
             const baseKey = await window.crypto.subtle.importKey(
                 'raw',
-                enc.encode(password || ''),
+                enc.encode(normalized),
                 { name: 'PBKDF2' },
                 false,
                 ['deriveKey']

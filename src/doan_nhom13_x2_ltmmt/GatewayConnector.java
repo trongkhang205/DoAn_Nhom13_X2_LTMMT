@@ -273,10 +273,10 @@ public class GatewayConnector implements WebSocket.Listener {
 
             String clientPass = data.get("password");
             String expectedPass = passwordSupplier != null ? passwordSupplier.get() : "";
-            String normalizedClient = clientPass != null ? clientPass.trim() : "";
-            String normalizedExpected = expectedPass != null ? expectedPass.trim() : "";
+            String normalizedClient = clientPass != null ? clientPass.trim().toLowerCase() : "";
+            String normalizedExpected = expectedPass != null ? expectedPass.trim().toLowerCase() : "";
 
-            if (!normalizedExpected.isEmpty() && normalizedExpected.equalsIgnoreCase(normalizedClient)) {
+            if (!normalizedExpected.isEmpty() && normalizedExpected.equals(normalizedClient)) {
                 relayFailedAttempts = 0;
                 relayLockoutExpiry = 0;
                 if (logger != null) {

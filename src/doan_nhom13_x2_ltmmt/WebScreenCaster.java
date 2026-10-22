@@ -51,6 +51,7 @@ public class WebScreenCaster implements Runnable {
     private int keyframeInterval = 90; // Gửi Full frame mỗi 90 frames (~3 giây)
     private int frameCounter = 0;
     private int idleFrameCounter = 0;
+    private volatile boolean isFirstFrame = true;
 
     // Bộ nén JPEG tái sử dụng (Object Pooling tránh GC và OutOfMemory)
     private ImageWriter jpegWriter;
@@ -356,17 +357,22 @@ public class WebScreenCaster implements Runnable {
                 // 3. Nếu màn hình tĩnh: duy trì nhịp gửi tối thiểu (tối đa bỏ qua 2 khung hình)
                 // Đảm bảo client không bao giờ bị tụt FPS xuống 0 - 4 FPS
                 frameCounter++;
-                if (changedBlocks == 0) {
+                boolean forceKeyframe = isFirstFrame || (frameCounter >= keyframeInterval);
+
+                // Nếu màn hình hoàn toàn tĩnh: duy trì nhịp gửi tối thiểu
+                if (changedBlocks == 0 && !forceKeyframe) {
                     idleFrameCounter++;
-                    if (idleFrameCounter < 2) {
-                        Thread.sleep(frameDelay);
+                    if (idleFrameCounter < 15) {
+                        long elapsed = System.currentTimeMillis() - startTime;
+                        if (elapsed < frameDelay) {
+                            Thread.sleep(frameDelay - elapsed);
+                        }
                         continue;
                     }
                 }
                 idleFrameCounter = 0;
 
                 // 4. Phân loại Full Frame vs Delta Frame
-                boolean forceKeyframe = (frameCounter >= keyframeInterval || frameCounter == 1);
                 int targetX = 0, targetY = 0, targetW = W, targetH = H;
                 byte frameType = 0; // 0 = Full, 1 = Delta
                 BufferedImage imageToSend;
@@ -394,6 +400,7 @@ public class WebScreenCaster implements Runnable {
                 } else {
                     imageToSend = rgbImage;
                     frameCounter = 0;
+                    isFirstFrame = false;
                 }
 
                 // Lưu lại pixel vừa xử lý
@@ -456,7 +463,8 @@ public class WebScreenCaster implements Runnable {
 
             } catch (IOException e) {
                 consecutiveIoErrors++;
-                if (consecutiveIoErrors >= 6 || !running) {
+                isFirstFrame = true; // Yêu cầu gửi lại Full Keyframe khi mạng thông
+                if (consecutiveIoErrors >= 50 || !running) {
                     if (running && logger != null) {
                         logger.appendLog("WebScreenCaster: Dừng luồng truyền màn hình (" + e.getMessage() + ")");
                     }
@@ -464,7 +472,7 @@ public class WebScreenCaster implements Runnable {
                 }
                 // Nếu chỉ nghẽn mạng tạm thời qua Internet Tunnel, ngủ ngắn và tiếp tục thay vì ngắt đột ngột
                 try {
-                    Thread.sleep(Math.max(10, frameDelay));
+                    Thread.sleep(100);
                 } catch (InterruptedException ie) {
                     break;
                 }
