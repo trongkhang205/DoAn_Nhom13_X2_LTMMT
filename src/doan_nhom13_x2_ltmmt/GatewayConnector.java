@@ -94,26 +94,52 @@ public class GatewayConnector implements WebSocket.Listener {
         }
     }
 
-    private volatile boolean binarySendBusy = false;
+    private volatile boolean screenSendBusy = false;
 
-    public boolean isBinaryBusy() {
-        return binarySendBusy;
+    public boolean isScreenSendBusy() {
+        return screenSendBusy;
     }
 
-    public void safeSendBinary(byte[] payload) throws IOException {
+    public boolean isBinaryBusy() {
+        return screenSendBusy;
+    }
+
+    /**
+     * Gửi khung hình nhị phân (Screen Frame) đồng bộ, tuyệt đối tránh lỗi race condition
+     * IllegalStateException trên Java 11 WebSocket khi nhiều luồng cùng gửi qua một socket.
+     */
+    public void safeSendScreenFrame(byte[] payload) throws IOException {
         synchronized (sendLock) {
             if (webSocket != null && !webSocket.isOutputClosed()) {
-                binarySendBusy = true;
+                screenSendBusy = true;
                 try {
-                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).whenComplete((ws, ex) -> {
-                        binarySendBusy = false;
-                    });
+                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).get(10, java.util.concurrent.TimeUnit.SECONDS);
                 } catch (Exception e) {
-                    binarySendBusy = false;
-                    throw new IOException("WebSocket sendBinary lỗi: " + e.getMessage(), e);
+                    throw new IOException("WebSocket sendScreenFrame lỗi: " + e.getMessage(), e);
+                } finally {
+                    screenSendBusy = false;
                 }
             }
         }
+    }
+
+    /**
+     * Gửi gói tin âm thanh nhị phân (Audio Frame) đồng bộ qua cùng WebSocket.
+     */
+    public void safeSendAudioFrame(byte[] payload) throws IOException {
+        synchronized (sendLock) {
+            if (webSocket != null && !webSocket.isOutputClosed()) {
+                try {
+                    webSocket.sendBinary(ByteBuffer.wrap(payload), true).get(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new IOException("WebSocket sendAudioFrame lỗi: " + e.getMessage(), e);
+                }
+            }
+        }
+    }
+
+    public void safeSendBinary(byte[] payload) throws IOException {
+        safeSendScreenFrame(payload);
     }
 
     public void safeSendPing() throws Exception {
@@ -246,17 +272,18 @@ public class GatewayConnector implements WebSocket.Listener {
                     logger.appendLog("GatewayConnector: Khách kết nối qua Internet xác thực THÀNH CÔNG!");
                 }
 
+                // Dẫn xuất khóa bí mật E2EE (AES-256-GCM) TRƯỚC KHI gửi auth_result và khởi chạy luồng
+                javax.crypto.SecretKey e2eeKey = null;
+                try {
+                    e2eeKey = CryptoHelper.deriveKey(normalizedExpected);
+                } catch (Exception ignored) {}
+
                 java.awt.Dimension screenSize = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
                 String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
                         + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
                 safeSendText(resp);
 
-                startStreaming();
-                if (screenCaster != null && !normalizedExpected.isEmpty()) {
-                    try {
-                        screenCaster.setE2eeKey(CryptoHelper.deriveKey(normalizedExpected));
-                    } catch (Exception ignored) {}
-                }
+                startStreaming(e2eeKey);
             } else {
                 relayFailedAttempts++;
                 if (relayFailedAttempts >= 5) {
@@ -279,22 +306,25 @@ public class GatewayConnector implements WebSocket.Listener {
         }
     }
 
-    private synchronized void startStreaming() {
+    private synchronized void startStreaming(javax.crypto.SecretKey e2eeKey) {
         stopStreaming();
 
-        // Gửi khung nhị phân ảnh màn hình qua WebSocket của Gateway (thread-safe)
-        WebScreenCaster.BinaryFrameSender frameSender = this::safeSendBinary;
+        // Gửi khung nhị phân ảnh màn hình qua WebSocket của Gateway (thread-safe, có await tránh collision)
+        WebScreenCaster.BinaryFrameSender frameSender = this::safeSendScreenFrame;
 
         // Gửi văn bản JSON qua WebSocket của Gateway (thread-safe)
         WebInputHandler.TextMessageSender textSender = this::safeSendText;
 
         this.screenCaster = new WebScreenCaster(frameSender, logger);
-        this.screenCaster.setBusyChecker(this::isBinaryBusy);
+        this.screenCaster.setBusyChecker(this::isScreenSendBusy);
+        if (e2eeKey != null) {
+            this.screenCaster.setE2eeKey(e2eeKey);
+        }
         this.screenCaster.setUacStatusListener((active) -> {
             safeSendText("{\"type\":\"uac_status\",\"active\":" + active + "}");
         });
 
-        this.audioStreamer = new WebAudioStreamer(this::safeSendBinary, logger);
+        this.audioStreamer = new WebAudioStreamer(this::safeSendAudioFrame, logger);
         new Thread(audioStreamer, "Gateway-AudioStreamer-Thread").start();
 
         this.inputHandler = new WebInputHandler(textSender, logger, screenCaster, audioStreamer);

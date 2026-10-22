@@ -19,5 +19,5 @@ echo   COPY DUONG LINK HTTPS .trycloudflare.com VA MO TREN DIEN THOAI (4G):
 echo ======================================================================
 echo.
 
-.\cloudflared.exe tunnel --url http://localhost:3000
+.\cloudflared.exe tunnel --no-autoupdate --no-prechecks --edge-ip-version 4 --url http://localhost:3000
 pause

@@ -351,18 +351,21 @@
                     showToast(data.message || (data.isTunnelActive ? 'Cầu nối Internet 4G đã bật!' : 'Đã tắt cầu nối Internet 4G'), 'info');
                     fetchServerLogs();
 
-                    // Nếu vừa bật và chưa có URL, hẹn giờ poll liên tục vài lần để lấy URL nhanh nhất
+                    // Nếu vừa bật và chưa có URL, hẹn giờ poll liên tục đến khi có URL (tối đa 40s)
                     if (data.isTunnelActive && !data.tunnelUrl) {
                         if (tunnelPollTimer) clearInterval(tunnelPollTimer);
                         let pollAttempts = 0;
                         tunnelPollTimer = setInterval(async () => {
                             pollAttempts++;
+                            if (dispTunnelUrl && (!cachedServerInfo || !cachedServerInfo.tunnelUrl)) {
+                                dispTunnelUrl.textContent = `Đang kết nối Cloudflare Edge... Vui lòng chờ (${pollAttempts}s)`;
+                            }
                             await fetchServerInfo();
-                            if ((cachedServerInfo && cachedServerInfo.tunnelUrl) || pollAttempts > 8) {
+                            if ((cachedServerInfo && cachedServerInfo.tunnelUrl) || pollAttempts >= 35) {
                                 clearInterval(tunnelPollTimer);
                                 tunnelPollTimer = null;
                             }
-                        }, 1800);
+                        }, 1200);
                     }
                 } else {
                     showToast('Lỗi khi chuyển trạng thái Cầu Nối', 'error');
@@ -563,6 +566,11 @@
         clearClientError();
         setConnectingButton(true);
 
+        // Khởi tạo trước khóa mã hóa đầu cuối E2EE (AES-256-GCM) ngay khi bấm kết nối
+        if (password) {
+            deriveE2eeKey(password);
+        }
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         let gatewayWsUrl;
 
@@ -632,6 +640,11 @@
     function connectToRemoteServer(host, port, password) {
         clearClientError();
         setConnectingButton(true);
+
+        // Khởi tạo trước khóa mã hóa đầu cuối E2EE (AES-256-GCM) ngay khi bấm kết nối
+        if (password) {
+            deriveE2eeKey(password);
+        }
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${host}:${port}/ws`;
@@ -734,6 +747,10 @@
                         isE2eeActive = true;
                         const statE2ee = document.getElementById('statE2ee');
                         if (statE2ee) statE2ee.style.display = 'inline-flex';
+                        if (!e2eeCryptoKey) {
+                            const pass = clientTargetPass ? clientTargetPass.value.trim() : '';
+                            if (pass) deriveE2eeKey(pass);
+                        }
                     }
 
                     startPingHeartbeat();
@@ -837,6 +854,13 @@
 
         // 2. Nhận diện và giải mã gói tin E2EE AES-256-GCM
         if (firstByte === 0xEE) {
+            if (!e2eeCryptoKey) {
+                // Tự động dẫn xuất khóa nếu chưa có
+                const pass = clientTargetPass ? clientTargetPass.value.trim() : '';
+                if (pass) {
+                    await deriveE2eeKey(pass);
+                }
+            }
             if (e2eeCryptoKey) {
                 try {
                     const iv = new Uint8Array(arrayBuffer, 1, 12);
@@ -852,6 +876,7 @@
                     return;
                 }
             } else {
+                console.warn('Nhận gói tin E2EE Frame (0xEE) nhưng chưa có khóa giải mã!');
                 return;
             }
         }
@@ -925,6 +950,10 @@
     function handleDisconnect() {
         isConnected = false;
         isAuthenticated = false;
+        e2eeCryptoKey = null;
+        isE2eeActive = false;
+        const statE2ee = document.getElementById('statE2ee');
+        if (statE2ee) statE2ee.style.display = 'none';
         if (pingInterval) {
             clearInterval(pingInterval);
             pingInterval = null;

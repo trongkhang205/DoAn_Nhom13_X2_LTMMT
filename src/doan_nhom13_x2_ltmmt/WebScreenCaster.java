@@ -207,6 +207,7 @@ public class WebScreenCaster implements Runnable {
 
         this.prevPixels = new int[W * H];
         ByteArrayOutputStream baos = new ByteArrayOutputStream(128 * 1024);
+        int consecutiveIoErrors = 0;
 
         // Tái sử dụng BufferedImage và Graphics2D để triệt tiêu Garbage Collection (250MB/s)
         BufferedImage reusableRgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
@@ -445,6 +446,8 @@ public class WebScreenCaster implements Runnable {
                     frameSender.send(rawPayload);
                 }
 
+                consecutiveIoErrors = 0; // Đặt lại bộ đếm lỗi khi gửi thành công
+
                 // 8. Điều tiết tốc độ khung hình
                 long elapsed = System.currentTimeMillis() - startTime;
                 if (elapsed < frameDelay) {
@@ -452,10 +455,19 @@ public class WebScreenCaster implements Runnable {
                 }
 
             } catch (IOException e) {
-                if (running && logger != null) {
-                    logger.appendLog("WebScreenCaster: Client đóng kết nối (" + e.getMessage() + ")");
+                consecutiveIoErrors++;
+                if (consecutiveIoErrors >= 6 || !running) {
+                    if (running && logger != null) {
+                        logger.appendLog("WebScreenCaster: Dừng luồng truyền màn hình (" + e.getMessage() + ")");
+                    }
+                    break;
                 }
-                break;
+                // Nếu chỉ nghẽn mạng tạm thời qua Internet Tunnel, ngủ ngắn và tiếp tục thay vì ngắt đột ngột
+                try {
+                    Thread.sleep(Math.max(10, frameDelay));
+                } catch (InterruptedException ie) {
+                    break;
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;

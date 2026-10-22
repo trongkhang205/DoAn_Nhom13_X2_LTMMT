@@ -167,7 +167,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                     return;
                 }
 
-                ProcessBuilder pb = new ProcessBuilder(cfExe.getAbsolutePath(), "tunnel", "--url", "http://localhost:3000");
+                ProcessBuilder pb = new ProcessBuilder(cfExe.getAbsolutePath(), "tunnel", "--no-autoupdate", "--no-prechecks", "--edge-ip-version", "4", "--url", "http://localhost:3000");
                 pb.redirectErrorStream(true);
                 tunnelProcess = pb.start();
 

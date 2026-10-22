@@ -104,8 +104,10 @@ public class WebAudioStreamer implements Runnable {
             audioLine.open(format, 4410 * 2); // Bộ đệm 100ms
             audioLine.start();
 
-            // Đọc các gói 1764 bytes (~20ms âm thanh ở 44.1kHz 16-bit Mono)
-            byte[] pcmBuffer = new byte[1764];
+            // Đọc các gói 3528 bytes (~40ms âm thanh ở 44.1kHz 16-bit Mono)
+            byte[] pcmBuffer = new byte[3528];
+            int silentSkipCount = 0;
+            int consecutiveAudioErrors = 0;
 
             while (running && !Thread.currentThread().isInterrupted()) {
                 if (!enabled) {
@@ -120,6 +122,27 @@ public class WebAudioStreamer implements Runnable {
                     continue;
                 }
 
+                // Phát hiện im lặng (Noise Gate): nếu không có âm thanh thực tế, bỏ qua để nhường 100% băng thông cho màn hình
+                boolean isSilent = true;
+                int threshold = 180;
+                for (int i = 0; i < bytesRead - 1; i += 2) {
+                    short sample = (short) ((pcmBuffer[i + 1] << 8) | (pcmBuffer[i] & 0xFF));
+                    if (Math.abs(sample) > threshold) {
+                        isSilent = false;
+                        break;
+                    }
+                }
+
+                if (isSilent) {
+                    silentSkipCount++;
+                    // Cứ mỗi 25 gói im lặng (~1 giây) gửi 1 gói giữ nhịp, các gói còn lại bỏ qua
+                    if (silentSkipCount % 25 != 0) {
+                        continue;
+                    }
+                } else {
+                    silentSkipCount = 0;
+                }
+
                 // Đóng gói Frame nhị phân âm thanh (Header 6 bytes):
                 // [magic=0xAA (1 byte), sampleRate (4 bytes), channels (1 byte), PCM bytes]
                 ByteBuffer buffer = ByteBuffer.allocate(6 + bytesRead);
@@ -128,11 +151,18 @@ public class WebAudioStreamer implements Runnable {
                 buffer.put((byte) CHANNELS);
                 buffer.put(pcmBuffer, 0, bytesRead);
 
-                audioSender.send(buffer.array());
+                try {
+                    audioSender.send(buffer.array());
+                    consecutiveAudioErrors = 0;
+                } catch (Exception sendErr) {
+                    consecutiveAudioErrors++;
+                    if (consecutiveAudioErrors > 10 || !running) {
+                        break;
+                    }
+                    Thread.sleep(30);
+                }
             }
 
-        } catch (IOException io) {
-            // Kết nối client đóng
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
