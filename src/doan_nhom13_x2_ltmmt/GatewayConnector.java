@@ -28,6 +28,10 @@ public class GatewayConnector implements WebSocket.Listener {
     private WebInputHandler inputHandler;
     private final StringBuilder textBuffer = new StringBuilder();
 
+    // Bảo mật chống Brute-force qua Internet Relay Gateway
+    private int relayFailedAttempts = 0;
+    private long relayLockoutExpiry = 0;
+
     private Thread connectorThread;
     private final Object sendLock = new Object();
 
@@ -218,12 +222,25 @@ public class GatewayConnector implements WebSocket.Listener {
         if (type == null) return;
 
         if ("auth".equals(type)) {
+            // Kiểm tra trạng thái khóa tạm thời do đoán sai quá nhiều lần
+            if (System.currentTimeMillis() < relayLockoutExpiry) {
+                long remainingSec = (relayLockoutExpiry - System.currentTimeMillis()) / 1000;
+                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Đang tạm khóa kết nối từ xa " + remainingSec + " giây do nhập sai mật khẩu quá 5 lần!\"}";
+                safeSendText(resp);
+                if (logger != null) {
+                    logger.appendLog("GatewayConnector: [CẢNH BÁO BẢO MẬT] Chặn yêu cầu Internet (Đang bị khóa do nghi vấn Brute-force)");
+                }
+                return;
+            }
+
             String clientPass = data.get("password");
             String expectedPass = passwordSupplier != null ? passwordSupplier.get() : "";
             String normalizedClient = clientPass != null ? clientPass.trim() : "";
             String normalizedExpected = expectedPass != null ? expectedPass.trim() : "";
 
             if (!normalizedExpected.isEmpty() && normalizedExpected.equalsIgnoreCase(normalizedClient)) {
+                relayFailedAttempts = 0;
+                relayLockoutExpiry = 0;
                 if (logger != null) {
                     logger.appendLog("GatewayConnector: Khách kết nối qua Internet xác thực THÀNH CÔNG!");
                 }
@@ -235,11 +252,21 @@ public class GatewayConnector implements WebSocket.Listener {
 
                 startStreaming();
             } else {
-                if (logger != null) {
-                    logger.appendLog("GatewayConnector: Từ chối kết nối qua Internet (Mật khẩu không khớp: Nhận '" + normalizedClient + "' vs Máy chủ '" + normalizedExpected + "').");
+                relayFailedAttempts++;
+                if (relayFailedAttempts >= 5) {
+                    relayLockoutExpiry = System.currentTimeMillis() + 5 * 60 * 1000;
+                    if (logger != null) {
+                        logger.appendLog("GatewayConnector: [CẢNH BÁO BẢO MẬT] ĐÃ KHÓA TẠM KẾT NỐI INTERNET trong 5 phút do nhập sai mật khẩu liên tiếp " + relayFailedAttempts + " lần!");
+                    }
+                    String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Bạn đã nhập sai quá 5 lần! Kết nối bị khóa tạm thời trong 5 phút.\"}";
+                    safeSendText(resp);
+                } else {
+                    if (logger != null) {
+                        logger.appendLog("GatewayConnector: Từ chối kết nối qua Internet (Mật khẩu không khớp: Sai lần " + relayFailedAttempts + "/5).");
+                    }
+                    String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! (Còn " + (5 - relayFailedAttempts) + " lần thử)\"}";
+                    safeSendText(resp);
                 }
-                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! Vui lòng kiểm tra lại mật khẩu trên máy tính.\"}";
-                safeSendText(resp);
             }
         } else if (inputHandler != null) {
             inputHandler.handleMessage(json);

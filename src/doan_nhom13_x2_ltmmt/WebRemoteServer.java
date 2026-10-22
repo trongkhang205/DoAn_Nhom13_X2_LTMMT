@@ -368,16 +368,24 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
-        // 4. API: Bật/Tắt chia sẻ màn hình
+        // 4. API: Bật/Tắt chia sẻ màn hình (Bảo mật: Chỉ Localhost)
         if (uri.startsWith("/api/server-toggle")) {
+            if (!isLocal) {
+                sendJsonResponse(out, "{\"success\":false,\"message\":\"Từ chối: Thao tác chỉ cho phép từ Localhost!\"}");
+                return;
+            }
             this.isSharingEnabled = !this.isSharingEnabled;
             appendLog("Chế độ chia sẻ màn hình đã " + (isSharingEnabled ? "BẬT" : "TẮT"));
             sendJsonResponse(out, "{\"success\":true,\"isSharingEnabled\":" + isSharingEnabled + "}");
             return;
         }
 
-        // 4. API: Lấy danh sách Logs
+        // 5. API: Lấy danh sách Logs (Bảo mật: Chỉ Localhost)
         if (uri.startsWith("/api/server-logs")) {
+            if (!isLocal) {
+                sendJsonResponse(out, "[]");
+                return;
+            }
             StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < memoryLogs.size(); i++) {
                 sb.append("\"").append(escapeJson(memoryLogs.get(i))).append("\"");
@@ -388,8 +396,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             return;
         }
 
-        // 5. API: Xóa nhật ký máy chủ
+        // 6. API: Xóa nhật ký máy chủ (Bảo mật: Chỉ Localhost)
         if (uri.startsWith("/api/server-clearlogs")) {
+            if (!isLocal) {
+                sendJsonResponse(out, "{\"success\":false,\"message\":\"Từ chối: Thao tác chỉ cho phép từ Localhost!\"}");
+                return;
+            }
             memoryLogs.clear();
             appendLog("Đã xóa toàn bộ nhật ký máy chủ.");
             sendJsonResponse(out, "{\"success\":true}");
