@@ -148,10 +148,13 @@ public class GatewayConnector implements WebSocket.Listener {
         safeSendScreenFrame(payload);
     }
 
-    public void safeSendPing() throws Exception {
+    public void safeSendPing() {
         synchronized (sendLock) {
             if (webSocket != null && !webSocket.isOutputClosed()) {
-                webSocket.sendPing(ByteBuffer.wrap(new byte[]{1})).get(3, java.util.concurrent.TimeUnit.SECONDS);
+                try {
+                    // Gui ping bat dong bo de duy tri ket noi relay, khong cho block de tranh nghen khi dang stream
+                    webSocket.sendPing(ByteBuffer.wrap(new byte[]{1}));
+                } catch (Exception ignored) {}
             }
         }
     }
@@ -186,12 +189,14 @@ public class GatewayConnector implements WebSocket.Listener {
                 // Giữ kết nối và gửi Heartbeat định kỳ
                 while (running && connected && webSocket != null && !webSocket.isInputClosed() && !webSocket.isOutputClosed()) {
                     try {
-                        Thread.sleep(3000);
+                        Thread.sleep(4000);
                         if (running && connected && webSocket != null) {
                             safeSendPing();
                         }
                     } catch (InterruptedException ie) {
-                        break; // Thoát vòng lặp ngủ để kết nối lại ngay lập tức
+                        break; // Thoat vong lap ngu de ket noi lai ngay lap tuc
+                    } catch (Exception e) {
+                        // Loi gui ping tam thoi khong lam ngat ket noi
                     }
                 }
             } catch (Exception e) {
@@ -331,6 +336,8 @@ public class GatewayConnector implements WebSocket.Listener {
 
         this.screenCaster = new WebScreenCaster(frameSender, logger);
         this.screenCaster.setBusyChecker(this::isScreenSendBusy);
+        this.screenCaster.setQuality(0.55f);
+        this.screenCaster.setTargetFps(25);
         if (e2eeKey != null) {
             this.screenCaster.setE2eeKey(e2eeKey);
         }

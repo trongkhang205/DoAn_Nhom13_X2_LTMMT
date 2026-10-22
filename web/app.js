@@ -411,6 +411,10 @@
 
     // Logs Polling
     async function fetchServerLogs() {
+        if (remoteViewerModal && remoteViewerModal.classList.contains('active')) {
+            // Khi dang xem man hinh tu xa, tam dung poll log de tiet kiem bang thong
+            return;
+        }
         try {
             const res = await fetch('/api/server-logs');
             if (res.ok) {
@@ -818,18 +822,18 @@
 
                 // Tự động thích ứng chất lượng theo độ trễ RTT nếu người dùng chưa chọn thủ công
                 if (!window.isManualQualitySelected) {
-                    if (rtt > 180 && window.currentAdaptiveQuality !== 0.40) {
-                        window.currentAdaptiveQuality = 0.40;
-                        sendJson({ type: 'quality', value: '0.40' });
-                        sendJson({ type: 'target_fps', value: '20' });
-                    } else if (rtt < 60 && window.currentAdaptiveQuality !== 0.75) {
-                        window.currentAdaptiveQuality = 0.75;
-                        sendJson({ type: 'quality', value: '0.75' });
-                        sendJson({ type: 'target_fps', value: '35' });
-                    } else if (rtt >= 60 && rtt <= 180 && window.currentAdaptiveQuality !== 0.60) {
-                        window.currentAdaptiveQuality = 0.60;
-                        sendJson({ type: 'quality', value: '0.60' });
-                        sendJson({ type: 'target_fps', value: '28' });
+                    if (rtt > 260 && window.currentAdaptiveQuality !== 0.35) {
+                        window.currentAdaptiveQuality = 0.35;
+                        sendJson({ type: 'quality', value: '0.35' });
+                        sendJson({ type: 'target_fps', value: '18' });
+                    } else if (rtt > 120 && rtt <= 260 && window.currentAdaptiveQuality !== 0.50) {
+                        window.currentAdaptiveQuality = 0.50;
+                        sendJson({ type: 'quality', value: '0.50' });
+                        sendJson({ type: 'target_fps', value: '24' });
+                    } else if (rtt <= 120 && window.currentAdaptiveQuality !== 0.65) {
+                        window.currentAdaptiveQuality = 0.65;
+                        sendJson({ type: 'quality', value: '0.65' });
+                        sendJson({ type: 'target_fps', value: '30' });
                     }
                 }
             } else if (msg.type === 'screen_list') {
@@ -1197,7 +1201,8 @@
     remoteCanvas.addEventListener('mousemove', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
         const now = performance.now();
-        if (now - lastMouseMoveTime < 18) return;
+        if (now - lastMouseMoveTime < 32) return;
+        if (ws && ws.bufferedAmount > 32 * 1024) return;
         lastMouseMoveTime = now;
 
         const coords = getCanvasCoordinates(e);
@@ -1759,6 +1764,10 @@
         }
 
         if (e.touches.length === 1) {
+            const now = performance.now();
+            if (now - lastMouseMoveTime < 32) return;
+            if (ws && ws.bufferedAmount > 32 * 1024) return;
+            lastMouseMoveTime = now;
             const touch = e.touches[0];
             const coords = getCanvasCoordinates({ clientX: touch.clientX, clientY: touch.clientY });
             sendJson({ type: 'mouse', action: 'move', x: coords.x, y: coords.y });
@@ -2063,6 +2072,10 @@
 
             function animate() {
                 requestAnimationFrame(animate);
+                if (remoteViewerModal && remoteViewerModal.classList.contains('active')) {
+                    // Khi dang mo Remote Viewer, tam dung render 3D de giai phong hoan toan GPU/CPU cho giai ma video
+                    return;
+                }
                 const t = clock.getElapsedTime();
 
                 // Smooth floating motion
