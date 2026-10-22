@@ -26,6 +26,7 @@ public class WebInputHandler {
     private final ServerLogger logger;
     private final WebScreenCaster screenCaster;
     private WebAudioStreamer audioStreamer;
+    private java.util.function.Supplier<String> passwordSupplier = null;
     private Robot robot;
 
     // Thư mục lưu trữ tệp tin truyền nhận
@@ -80,6 +81,10 @@ public class WebInputHandler {
 
     public void setAudioStreamer(WebAudioStreamer audioStreamer) {
         this.audioStreamer = audioStreamer;
+    }
+
+    public void setPasswordSupplier(java.util.function.Supplier<String> supplier) {
+        this.passwordSupplier = supplier;
     }
 
     private void sendText(String text) {
@@ -164,6 +169,23 @@ public class WebInputHandler {
                     String timestamp = data.get("t");
                     String pong = "{\"type\":\"pong\",\"t\":" + (timestamp != null ? timestamp : "0") + "}";
                     sendText(pong);
+                    break;
+
+                case "set_e2ee":
+                    boolean enableE2ee = "true".equalsIgnoreCase(data.get("enabled"));
+                    if (screenCaster != null) {
+                        if (enableE2ee) {
+                            try {
+                                String expPass = (passwordSupplier != null) ? passwordSupplier.get() : "";
+                                if (expPass != null && !expPass.isEmpty()) {
+                                    screenCaster.setE2eeKey(CryptoHelper.deriveKey(expPass.trim().toLowerCase()));
+                                }
+                            } catch (Exception ignored) {}
+                        } else {
+                            screenCaster.setE2eeKey(null);
+                        }
+                    }
+                    sendText("{\"type\":\"e2ee_status\",\"enabled\":" + (screenCaster != null && screenCaster.getE2eeKey() != null) + "}");
                     break;
 
                 // ===== TRUYỀN TỆP TIN HAI CHIỀU =====

@@ -124,9 +124,17 @@ public class WebScreenCaster implements Runnable {
 
     public void setE2eeKey(javax.crypto.SecretKey key) {
         this.e2eeKey = key;
-        if (logger != null && key != null) {
-            logger.appendLog("WebScreenCaster: Đã kích hoạt kênh mã hóa đầu cuối E2EE (AES-256-GCM) cho luồng hình ảnh.");
+        if (logger != null) {
+            if (key != null) {
+                logger.appendLog("WebScreenCaster: Đã kích hoạt kênh mã hóa đầu cuối E2EE (AES-256-GCM) cho luồng hình ảnh.");
+            } else {
+                logger.appendLog("WebScreenCaster: Đã chuyển sang chế độ truyền trực tiếp tốc độ cao (TLS chuẩn).");
+            }
         }
+    }
+
+    public javax.crypto.SecretKey getE2eeKey() {
+        return e2eeKey;
     }
 
     public void setUacStatusListener(java.util.function.Consumer<Boolean> listener) {
@@ -357,12 +365,13 @@ public class WebScreenCaster implements Runnable {
                 // 3. Nếu màn hình tĩnh: duy trì nhịp gửi tối thiểu (tối đa bỏ qua 2 khung hình)
                 // Đảm bảo client không bao giờ bị tụt FPS xuống 0 - 4 FPS
                 frameCounter++;
-                boolean forceKeyframe = isFirstFrame || (frameCounter >= keyframeInterval);
+                // Luôn gửi ít nhất 3 Full Keyframe đầu tiên để máy khách vẽ màn hình tức thì
+                boolean forceKeyframe = isFirstFrame || (frameCounter <= 3) || (frameCounter >= keyframeInterval);
 
-                // Nếu màn hình hoàn toàn tĩnh: duy trì nhịp gửi tối thiểu
-                if (changedBlocks == 0 && !forceKeyframe) {
+                // Nếu màn hình hoàn toàn tĩnh: duy trì nhịp gửi tối thiểu (chỉ kích hoạt sau khi đã gửi 3 khung hình đầu)
+                if (changedBlocks == 0 && !forceKeyframe && frameCounter > 3) {
                     idleFrameCounter++;
-                    if (idleFrameCounter < 15) {
+                    if (idleFrameCounter < 10) {
                         long elapsed = System.currentTimeMillis() - startTime;
                         if (elapsed < frameDelay) {
                             Thread.sleep(frameDelay - elapsed);

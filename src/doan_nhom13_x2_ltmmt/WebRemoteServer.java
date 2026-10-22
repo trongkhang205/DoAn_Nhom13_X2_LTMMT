@@ -144,18 +144,19 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
         new Thread(() -> {
             try {
+                // Dọn dẹp tiến trình cloudflared và node cũ để luôn nạp bản mới nhất
+                try {
+                    new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start().waitFor();
+                    new ProcessBuilder("taskkill", "/F", "/IM", "node.exe").start().waitFor();
+                    Thread.sleep(400);
+                } catch (Exception ignored) {}
+
                 ensureGatewayRunning();
 
                 // Đảm bảo GatewayConnector được kết nối và đăng ký Device ID ngay lập tức
                 if (gatewayConnector != null) {
                     gatewayConnector.reconnectNow();
                 }
-
-                // Dọn dẹp bất kỳ tiến trình cloudflared cũ nào trước khi khởi chạy
-                try {
-                    new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start().waitFor();
-                    Thread.sleep(400);
-                } catch (Exception ignored) {}
 
                 File cfExe = new File("cloudflared.exe");
                 if (!cfExe.exists()) {

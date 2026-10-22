@@ -108,6 +108,8 @@
     let isAuthenticated = false;
     let isControlEnabled = true;
     let e2eeCryptoKey = null;
+    let activeSessionPassword = '';
+    let totalBinaryFramesReceived = 0;
     let isE2eeActive = false;
     let isFitMode = true;
     let serverWidth = 1920;
@@ -584,6 +586,8 @@
     function connectViaInternetGateway(deviceId, password) {
         clearClientError();
         setConnectingButton(true);
+        activeSessionPassword = (password || '').trim().toLowerCase();
+        totalBinaryFramesReceived = 0;
 
         // Khởi tạo trước khóa mã hóa đầu cuối E2EE (AES-256-GCM) ngay khi bấm kết nối
         if (password) {
@@ -629,11 +633,18 @@
                 });
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
                 if (typeof event.data === 'string') {
                     handleTextMessage(event.data);
                 } else if (event.data instanceof ArrayBuffer) {
                     handleBinaryFrame(event.data);
+                } else if (event.data instanceof Blob) {
+                    try {
+                        const buf = await event.data.arrayBuffer();
+                        handleBinaryFrame(buf);
+                    } catch (e) {
+                        console.error('Lỗi chuyển đổi Blob sang ArrayBuffer:', e);
+                    }
                 }
             };
 
@@ -690,11 +701,18 @@
                 });
             };
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
                 if (typeof event.data === 'string') {
                     handleTextMessage(event.data);
                 } else if (event.data instanceof ArrayBuffer) {
                     handleBinaryFrame(event.data);
+                } else if (event.data instanceof Blob) {
+                    try {
+                        const buf = await event.data.arrayBuffer();
+                        handleBinaryFrame(buf);
+                    } catch (e) {
+                        console.error('Lỗi chuyển đổi Blob sang ArrayBuffer:', e);
+                    }
                 }
             };
 
@@ -765,7 +783,16 @@
                     if (msg.e2ee) {
                         isE2eeActive = true;
                         const statE2ee = document.getElementById('statE2ee');
-                        if (statE2ee) statE2ee.style.display = 'inline-flex';
+                        if (statE2ee) {
+                            statE2ee.style.display = 'inline-flex';
+                            statE2ee.style.cursor = 'pointer';
+                            statE2ee.title = 'Bấm để Bật/Tắt Mã Hóa E2EE';
+                            statE2ee.onclick = () => {
+                                isE2eeActive = !isE2eeActive;
+                                sendJson({ type: 'set_e2ee', enabled: isE2eeActive });
+                                showToast(isE2eeActive ? 'Đã kích hoạt E2EE AES-256-GCM' : 'Đã chuyển sang luồng trực tiếp TLS', 'info');
+                            };
+                        }
                         if (!e2eeCryptoKey) {
                             const pass = clientTargetPass ? clientTargetPass.value.trim().toLowerCase() : '';
                             if (pass) deriveE2eeKey(pass);
@@ -807,6 +834,10 @@
                 }
             } else if (msg.type === 'screen_list') {
                 renderScreensMenu(msg.screens, msg.current);
+            } else if (msg.type === 'e2ee_status') {
+                isE2eeActive = !!msg.enabled;
+                const statE2ee = document.getElementById('statE2ee');
+                if (statE2ee) statE2ee.style.display = isE2eeActive ? 'inline-flex' : 'none';
             } else if (msg.type === 'uac_status') {
                 const uacBanner = document.getElementById('uacWarningBanner');
                 if (uacBanner) {
@@ -859,6 +890,12 @@
     async function handleBinaryFrame(arrayBuffer) {
         if (!isAuthenticated) return;
 
+        totalBinaryFramesReceived++;
+        if (canvasLoading && canvasLoading.style.display !== 'none') {
+            const lbl = canvasLoading.querySelector('p');
+            if (lbl) lbl.textContent = `Đang đồng bộ luồng màn hình... (${totalBinaryFramesReceived} gói tin)`;
+        }
+
         const firstByte = new Uint8Array(arrayBuffer, 0, 1)[0];
 
         // 1. Nhận diện và phát Frame Âm Thanh (Audio Frame 0xAA)
@@ -874,14 +911,18 @@
 
         // 2. Nhận diện và giải mã gói tin E2EE AES-256-GCM
         if (firstByte === 0xEE) {
+            if (!isE2eeActive) {
+                // Yêu cầu server tắt E2EE để gửi trực tiếp
+                sendJson({ type: 'set_e2ee', enabled: false });
+                return;
+            }
             if (!e2eeCryptoKey) {
-                // Tự động dẫn xuất khóa nếu chưa có
-                const pass = clientTargetPass ? clientTargetPass.value.trim().toLowerCase() : '';
+                const pass = activeSessionPassword || (clientTargetPass ? clientTargetPass.value.trim().toLowerCase() : '');
                 if (pass) {
                     await deriveE2eeKey(pass);
                 }
             }
-            if (e2eeCryptoKey) {
+            if (e2eeCryptoKey && window.crypto && window.crypto.subtle) {
                 try {
                     const iv = new Uint8Array(arrayBuffer, 1, 12);
                     const ciphertext = new Uint8Array(arrayBuffer, 13);
@@ -892,11 +933,19 @@
                     );
                     arrayBuffer = decrypted;
                 } catch (decErr) {
-                    console.error('Lỗi giải mã E2EE Frame:', decErr);
+                    console.warn('[E2EE Fallback] Lỗi giải mã AES-GCM, tự động chuyển chế độ TLS trực tiếp:', decErr);
+                    isE2eeActive = false;
+                    const statE2ee = document.getElementById('statE2ee');
+                    if (statE2ee) statE2ee.style.display = 'none';
+                    sendJson({ type: 'set_e2ee', enabled: false });
                     return;
                 }
             } else {
-                console.warn('Nhận gói tin E2EE Frame (0xEE) nhưng chưa có khóa giải mã!');
+                console.warn('[E2EE Fallback] Không có khóa WebCrypto, tự động chuyển chế độ TLS trực tiếp');
+                isE2eeActive = false;
+                const statE2ee = document.getElementById('statE2ee');
+                if (statE2ee) statE2ee.style.display = 'none';
+                sendJson({ type: 'set_e2ee', enabled: false });
                 return;
             }
         }

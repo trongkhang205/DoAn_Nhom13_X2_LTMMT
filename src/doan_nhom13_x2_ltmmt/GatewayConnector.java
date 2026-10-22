@@ -283,15 +283,18 @@ public class GatewayConnector implements WebSocket.Listener {
                     logger.appendLog("GatewayConnector: Khách kết nối qua Internet xác thực THÀNH CÔNG!");
                 }
 
-                // Dẫn xuất khóa bí mật E2EE (AES-256-GCM) TRƯỚC KHI gửi auth_result và khởi chạy luồng
+                // Dẫn xuất khóa bí mật E2EE (AES-256-GCM) TRƯỚC KHI gửi auth_result
+                boolean clientWantsE2ee = !"false".equalsIgnoreCase(data.get("e2ee"));
                 javax.crypto.SecretKey e2eeKey = null;
-                try {
-                    e2eeKey = CryptoHelper.deriveKey(normalizedExpected);
-                } catch (Exception ignored) {}
+                if (clientWantsE2ee) {
+                    try {
+                        e2eeKey = CryptoHelper.deriveKey(normalizedExpected);
+                    } catch (Exception ignored) {}
+                }
 
                 java.awt.Dimension screenSize = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
                 String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
-                        + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
+                        + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":" + (e2eeKey != null) + "}";
                 safeSendText(resp);
 
                 startStreaming(e2eeKey);
@@ -339,6 +342,7 @@ public class GatewayConnector implements WebSocket.Listener {
         new Thread(audioStreamer, "Gateway-AudioStreamer-Thread").start();
 
         this.inputHandler = new WebInputHandler(textSender, logger, screenCaster, audioStreamer);
+        this.inputHandler.setPasswordSupplier(this.passwordSupplier);
         new Thread(screenCaster, "Gateway-ScreenCaster-Thread").start();
     }
 
