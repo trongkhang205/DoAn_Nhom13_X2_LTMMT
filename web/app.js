@@ -1922,7 +1922,7 @@
     // ================= THEME TOGGLE (LIGHT & DARK MODE) =================
     const btnThemeToggle = document.getElementById('btnThemeToggle');
     const initTheme = () => {
-        const savedTheme = localStorage.getItem('remote_app_theme') || 'dark';
+        const savedTheme = localStorage.getItem('remote_app_theme') || 'light';
         document.documentElement.setAttribute('data-theme', savedTheme);
     };
     initTheme();
@@ -2317,7 +2317,7 @@
     }
 
 
-    // ================= FLYING PETALS PARTICLE SYSTEM (CÁNH HOA BAY TRONG GIÓ) =================
+    // ================= FLYING PETALS PARTICLE SYSTEM (CÁNH HOA BAY MỀM MẠI, MƯỢT MÀ ĐỘC BẢN) =================
     function initPetalsCanvas() {
         const canvas = document.getElementById('petalsCanvas');
         if (!canvas) return;
@@ -2332,30 +2332,28 @@
             height = canvas.height = window.innerHeight;
         });
 
+        // Bảng màu cánh hoa hữu cơ với độ chuyển màu tự nhiên (Radial Gradient Stops)
         const themes = {
             rose: [
-                'rgba(244, 63, 94, 0.75)',
-                'rgba(251, 113, 133, 0.85)',
-                'rgba(225, 29, 72, 0.70)',
-                'rgba(254, 205, 211, 0.65)'
+                { base: '#f43f5e', body: '#fb7185', tip: 'rgba(255, 241, 242, 0.75)', deep: '#be123c' },
+                { base: '#e11d48', body: '#f43f5e', tip: 'rgba(254, 205, 211, 0.70)', deep: '#9f1239' },
+                { base: '#fb7185', body: '#fda4af', tip: 'rgba(255, 255, 255, 0.85)', deep: '#e11d48' },
+                { base: '#f472b6', body: '#fbcfe8', tip: 'rgba(255, 245, 247, 0.75)', deep: '#db2777' }
             ],
             sunflower: [
-                'rgba(245, 158, 11, 0.80)',
-                'rgba(251, 191, 36, 0.85)',
-                'rgba(217, 119, 6, 0.70)',
-                'rgba(254, 240, 138, 0.75)'
+                { base: '#f59e0b', body: '#fbbf24', tip: 'rgba(254, 249, 195, 0.80)', deep: '#b45309' },
+                { base: '#d97706', body: '#f59e0b', tip: 'rgba(253, 230, 138, 0.75)', deep: '#92400e' },
+                { base: '#eab308', body: '#fde047', tip: 'rgba(255, 255, 255, 0.85)', deep: '#ca8a04' }
             ],
             lavender: [
-                'rgba(192, 132, 252, 0.80)',
-                'rgba(244, 114, 182, 0.80)',
-                'rgba(168, 85, 247, 0.70)',
-                'rgba(245, 208, 254, 0.75)'
+                { base: '#c084fc', body: '#d8b4fe', tip: 'rgba(250, 245, 255, 0.85)', deep: '#9333ea' },
+                { base: '#f472b6', body: '#fbcfe8', tip: 'rgba(255, 240, 245, 0.80)', deep: '#db2777' },
+                { base: '#a855f7', body: '#c084fc', tip: 'rgba(243, 232, 255, 0.75)', deep: '#7e22ce' }
             ],
             lotus: [
-                'rgba(244, 63, 94, 0.75)',
-                'rgba(52, 211, 153, 0.65)',
-                'rgba(56, 189, 248, 0.60)',
-                'rgba(253, 226, 243, 0.80)'
+                { base: '#fb7185', body: '#fbcfe8', tip: 'rgba(255, 255, 255, 0.90)', deep: '#e11d48' },
+                { base: '#34d399', body: '#6ee7b7', tip: 'rgba(240, 253, 244, 0.75)', deep: '#059669' },
+                { base: '#38bdf8', body: '#7dd3fc', tip: 'rgba(240, 249, 255, 0.70)', deep: '#0284c7' }
             ]
         };
 
@@ -2366,8 +2364,8 @@
             if (themes[themeName]) {
                 currentTheme = themeName;
                 petals.forEach(p => {
-                    p.colors = themes[currentTheme];
-                    p.color = p.colors[Math.floor(Math.random() * p.colors.length)];
+                    const palette = themes[currentTheme];
+                    p.palette = palette[Math.floor(Math.random() * palette.length)];
                 });
             }
         };
@@ -2376,25 +2374,32 @@
             isPaused = paused;
         };
 
-        const PETAL_COUNT = window.innerWidth < 768 ? 22 : 40;
+        const PETAL_COUNT = window.innerWidth < 768 ? 20 : 36;
         const petals = [];
 
         function createPetal(randomY = true) {
-            const colors = themes[currentTheme];
+            const palette = themes[currentTheme];
+            const chosen = palette[Math.floor(Math.random() * palette.length)];
+            const depth = 0.35 + Math.random() * 0.65; // Độ sâu không gian 3D
+
             return {
                 x: Math.random() * width,
-                y: randomY ? Math.random() * height : -20,
-                size: 8 + Math.random() * 11,
-                speedY: 0.8 + Math.random() * 1.3,
-                speedX: -0.4 + Math.random() * 1.1,
-                angle: Math.random() * 360,
-                angularSpeed: (Math.random() - 0.5) * 1.8,
+                y: randomY ? Math.random() * height : -25,
+                depth: depth,
+                size: (10 + Math.random() * 12) * depth,
+                speedY: (0.7 + Math.random() * 1.1) * depth,
+                speedX: (-0.3 + Math.random() * 0.8) * depth,
+                sway: 0.8 + Math.random() * 1.4,
                 wobble: Math.random() * Math.PI * 2,
-                wobbleSpeed: 0.02 + Math.random() * 0.03,
+                wobbleSpeed: 0.018 + Math.random() * 0.025,
                 flip: Math.random() * Math.PI,
-                flipSpeed: 0.015 + Math.random() * 0.025,
-                color: colors[Math.floor(Math.random() * colors.length)],
-                opacity: 0.5 + Math.random() * 0.45
+                flipSpeed: 0.012 + Math.random() * 0.02,
+                roll: Math.random() * Math.PI,
+                rollSpeed: 0.008 + Math.random() * 0.016,
+                angle: Math.random() * 360,
+                angularSpeed: (Math.random() - 0.5) * 1.2,
+                palette: chosen,
+                opacity: 0.65 + Math.random() * 0.3
             };
         }
 
@@ -2402,24 +2407,44 @@
             petals.push(createPetal(true));
         }
 
-        function drawPetal(p) {
+        function drawOrganicPetal(p) {
             ctx.save();
             ctx.translate(p.x, p.y);
             ctx.rotate((p.angle * Math.PI) / 180);
-            ctx.scale(Math.cos(p.flip), 1);
 
-            ctx.fillStyle = p.color;
+            // Xoay lật 3D tự nhiên (Tumbling & Rolling in the wind)
+            const scaleX = Math.cos(p.flip);
+            const scaleY = Math.cos(p.roll) * 0.9 + 0.1;
+            ctx.scale(scaleX, scaleY);
+
+            // Đổ bóng phát sáng dịu nhẹ
+            ctx.shadowColor = p.palette.base;
+            ctx.shadowBlur = 8 * p.depth;
+            ctx.globalAlpha = p.opacity;
+
+            // Gradient hướng tâm mô phỏng cấu trúc cánh hoa mềm mại chân thực
+            const grad = ctx.createRadialGradient(-p.size * 0.15, -p.size * 0.2, p.size * 0.1, 0, 0, p.size * 1.2);
+            grad.addColorStop(0, p.palette.tip);
+            grad.addColorStop(0.45, p.palette.body);
+            grad.addColorStop(0.85, p.palette.base);
+            grad.addColorStop(1, p.palette.deep);
+
+            ctx.fillStyle = grad;
+
+            // Vẽ hình dáng cánh hoa mềm mại, uốn lượn tự nhiên hình giọt nước có khía nhẹ
             ctx.beginPath();
-            ctx.moveTo(0, -p.size);
-            ctx.bezierCurveTo(p.size * 0.7, -p.size * 0.5, p.size * 0.8, p.size * 0.6, 0, p.size);
-            ctx.bezierCurveTo(-p.size * 0.8, p.size * 0.6, -p.size * 0.7, -p.size * 0.5, 0, -p.size);
+            ctx.moveTo(0, -p.size * 1.1);
+            ctx.bezierCurveTo(p.size * 0.85, -p.size * 0.65, p.size * 0.95, p.size * 0.45, 0, p.size * 0.95);
+            ctx.bezierCurveTo(-p.size * 0.95, p.size * 0.45, -p.size * 0.85, -p.size * 0.65, 0, -p.size * 1.1);
+            ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-            ctx.lineWidth = 0.8;
+            // Gân sống cánh hoa mềm mại trong suốt
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 0.7 * p.depth;
             ctx.beginPath();
-            ctx.moveTo(0, -p.size * 0.7);
-            ctx.lineTo(0, p.size * 0.7);
+            ctx.moveTo(0, -p.size * 0.8);
+            ctx.quadraticCurveTo(p.size * 0.1, 0, 0, p.size * 0.65);
             ctx.stroke();
 
             ctx.restore();
@@ -2434,14 +2459,16 @@
             for (let i = 0; i < petals.length; i++) {
                 const p = petals[i];
                 p.y += p.speedY;
-                p.x += p.speedX + Math.sin(p.wobble) * 0.7;
+                p.x += p.speedX + Math.sin(p.wobble) * p.sway;
                 p.wobble += p.wobbleSpeed;
                 p.flip += p.flipSpeed;
+                p.roll += p.rollSpeed;
                 p.angle += p.angularSpeed;
 
-                drawPetal(p);
+                drawOrganicPetal(p);
 
-                if (p.y > height + 25 || p.x > width + 25 || p.x < -25) {
+                // Khi cánh hoa bay qua cạnh màn hình
+                if (p.y > height + 35 || p.x > width + 35 || p.x < -35) {
                     petals[i] = createPetal(false);
                 }
             }

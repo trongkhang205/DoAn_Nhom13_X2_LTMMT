@@ -65,19 +65,57 @@
 }
 
 :root {
-    /* Modern Rose Gold & Sakura Glassmorphism Theme (Không quá tối, mềm mại, hiện đại) */
-    --bg-primary: #19121a;
-    --bg-secondary: #231624;
-    --bg-card: rgba(38, 24, 38, 0.72);
-    --bg-card-hover: rgba(48, 29, 49, 0.82);
-    --bg-card-border: rgba(244, 114, 182, 0.22);
-    --bg-card-border-glow: rgba(244, 114, 182, 0.45);
-    --bg-input: rgba(45, 26, 45, 0.65);
-    --bg-input-border: rgba(244, 114, 182, 0.25);
+    /* Theme Bừng Sáng Cánh Đồng Hoa (Luminous Radiant Floral Theme) */
+    --bg-primary: #fff5f7;
+    --bg-secondary: #ffffff;
+    --bg-card: rgba(255, 255, 255, 0.90);
+    --bg-card-hover: rgba(255, 255, 255, 0.98);
+    --bg-card-border: rgba(244, 63, 94, 0.18);
+    --bg-card-border-glow: rgba(244, 63, 94, 0.45);
+    --bg-input: rgba(255, 255, 255, 0.95);
+    --bg-input-border: rgba(244, 63, 94, 0.25);
 
-    --text-primary: #fff0f5; /* Lavender blush / Rose-tinted white */
-    --text-secondary: #fbcfe8; /* Soft sakura pink */
-    --text-muted: #b59baa; /* Warm mauve gray */
+    --text-primary: #1e1424; /* Deep Velvet Plum / Sắc nét, tương phản cao */
+    --text-secondary: #475569; /* Slate Gray / Dễ đọc */
+    --text-muted: #64748b;
+
+    --accent-rose: #e11d48;
+    --accent-pink: #ec4899;
+    --accent-blush: #f43f5e;
+    --accent-sakura: #fb7185;
+    --accent-lavender: #a855f7;
+    --accent-emerald: #059669;
+    --accent-amber: #d97706;
+    --accent-blue: #0284c7;
+    --accent-indigo: #6366f1;
+    --accent-cyan: #06b6d4;
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 18px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', Consolas, monospace;
+
+    --transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] {
+    /* Dark Theme Dạ Quang Huyền Ảo (Tươi Sáng, Không Hắc Ám) */
+    --bg-primary: #241328;
+    --bg-secondary: #2f1934;
+    --bg-card: rgba(45, 25, 50, 0.82);
+    --bg-card-hover: rgba(58, 32, 65, 0.92);
+    --bg-card-border: rgba(244, 114, 182, 0.28);
+    --bg-card-border-glow: rgba(244, 114, 182, 0.55);
+    --bg-input: rgba(52, 28, 58, 0.85);
+    --bg-input-border: rgba(244, 114, 182, 0.35);
+
+    --text-primary: #fff0f5;
+    --text-secondary: #fbcfe8;
+    --text-muted: #c4b5fd;
 
     --accent-rose: #f43f5e;
     --accent-pink: #ec4899;
@@ -86,21 +124,11 @@
     --accent-lavender: #c084fc;
     --accent-emerald: #10b981;
     --accent-amber: #fbbf24;
-    --accent-blue: #f43f5e; /* Map default blue to radiant rose */
-    --accent-indigo: #ec4899; /* Map default indigo to vibrant pink */
-    --accent-cyan: #fb7185; /* Map default cyan to warm blush */
-
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
-    --radius-xl: 20px;
-    --radius-full: 9999px;
-
-    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', Consolas, monospace;
-
-    --transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    --accent-blue: #38bdf8;
+    --accent-indigo: #818cf8;
+    --accent-cyan: #22d3ee;
 }
+
 
 [data-theme="light"] {
     --bg-primary: #f8fafc;
@@ -2553,4 +2581,318 @@ body {
 @keyframes uacPulse {
     0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 10px 30px rgba(245, 158, 11, 0.4); }
     50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 14px 40px rgba(245, 158, 11, 0.65); }
+}
+
+
+/* ================= REALISTIC GLASS LAPTOP SHOWCASE (MACBOOK PRO EDITION) ================= */
+.hero-showcase-col {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1200px;
+    padding: 20px;
+}
+
+.showcase-glow-aura {
+    position: absolute;
+    width: 380px;
+    height: 380px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.28) 0%, rgba(251, 113, 133, 0.15) 50%, transparent 70%);
+    filter: blur(55px);
+    pointer-events: none;
+    z-index: 1;
+    animation: auraFloat 8s ease-in-out infinite alternate;
+}
+
+@keyframes auraFloat {
+    0% { transform: scale(0.92) translate(-10px, -10px); }
+    100% { transform: scale(1.08) translate(10px, 10px); }
+}
+
+.floating-flower-accent {
+    position: absolute;
+    font-size: 26px;
+    filter: drop-shadow(0 6px 12px rgba(244, 63, 94, 0.35));
+    pointer-events: none;
+    z-index: 10;
+    animation: flowerBob 5s ease-in-out infinite alternate;
+}
+.flower-tr { top: -10px; right: 20px; animation-delay: 0s; }
+.flower-bl { bottom: -5px; left: 15px; font-size: 28px; animation-delay: 1.5s; }
+.flower-br { bottom: 25px; right: -5px; font-size: 20px; animation-delay: 3s; }
+
+@keyframes flowerBob {
+    0% { transform: translateY(0) rotate(0deg) scale(1); }
+    100% { transform: translateY(-12px) rotate(10deg) scale(1.08); }
+}
+
+/* Khung máy tính sang trọng */
+.laptop-device {
+    position: relative;
+    z-index: 5;
+    width: 440px;
+    transform: perspective(1200px) rotateX(5deg) rotateY(-8deg);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    filter: drop-shadow(0 25px 45px rgba(244, 63, 94, 0.18)) drop-shadow(0 10px 20px rgba(0, 0, 0, 0.08));
+}
+
+.hero-showcase-col:hover .laptop-device {
+    transform: perspective(1200px) rotateX(1deg) rotateY(-2deg) translateY(-6px);
+}
+
+@media (max-width: 520px) {
+    .laptop-device {
+        width: 320px;
+        transform: none !important;
+    }
+}
+
+/* Nắp máy & Màn hình */
+.laptop-lid {
+    position: relative;
+    background: linear-gradient(145deg, #334155, #1e293b);
+    border-radius: 16px 16px 4px 4px;
+    padding: 10px 10px 14px 10px;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 -2px 8px rgba(0,0,0,0.2);
+}
+
+.laptop-screen {
+    position: relative;
+    width: 100%;
+    height: 255px;
+    background: #090d16;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Thanh Mac OS Bar */
+.screen-mac-bar {
+    height: 26px;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 11px;
+    color: #94a3b8;
+    font-family: var(--font-sans);
+}
+
+.mac-dots {
+    display: flex;
+    gap: 6px;
+}
+.mac-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.dot-close { background: #ef4444; }
+.dot-min { background: #f59e0b; }
+.dot-max { background: #10b981; }
+
+.screen-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #cbd5e1;
+    letter-spacing: 0.3px;
+}
+.screen-clock {
+    font-size: 10px;
+    color: #94a3b8;
+    font-family: var(--font-mono);
+}
+
+/* Nội dung màn hình sống động */
+.screen-content {
+    position: relative;
+    flex: 1;
+    background: radial-gradient(circle at 80% 20%, #4a152e 0%, #1e1124 50%, #0c0812 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    overflow: hidden;
+}
+
+.screen-wallpaper {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.wallpaper-glow {
+    position: absolute;
+    top: 20%;
+    right: 15%;
+    width: 140px;
+    height: 140px;
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.5) 0%, transparent 70%);
+    filter: blur(30px);
+}
+.wallpaper-flower {
+    position: absolute;
+    bottom: -10px;
+    right: -10px;
+    font-size: 72px;
+    opacity: 0.15;
+    filter: blur(1px);
+}
+
+/* Card HUD bên trong màn hình */
+.screen-hud-card {
+    position: relative;
+    z-index: 5;
+    width: 90%;
+    background: rgba(25, 14, 30, 0.82);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(244, 114, 182, 0.3);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 15px rgba(244, 63, 94, 0.2);
+}
+
+.hud-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.hud-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #34d399;
+}
+.status-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: pulse 1.5s infinite;
+}
+.hud-e2ee-tag {
+    font-size: 9px;
+    font-weight: 700;
+    color: #fbcfe8;
+    background: rgba(244, 63, 94, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(244, 63, 94, 0.35);
+}
+
+.hud-center-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.hud-icon-gem {
+    font-size: 22px;
+    background: rgba(244, 63, 94, 0.2);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+}
+.hud-main-text {
+    font-size: 12px;
+    font-weight: 800;
+    color: #ffffff;
+}
+.hud-sub-text {
+    font-size: 10px;
+    color: #cbd5e1;
+}
+.text-green { color: #34d399; font-weight: 700; }
+.text-rose { color: #fda4af; font-weight: 700; }
+
+.hud-meter-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.hud-meter-fill {
+    width: 88%;
+    height: 100%;
+    background: linear-gradient(90deg, #10b981, #ec4899);
+    border-radius: 2px;
+}
+
+/* Vệt phản quang mặt kính 3D thực tế */
+.screen-glass-glare {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(130deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.04) 30%, transparent 60%);
+    pointer-events: none;
+}
+
+/* Thân máy nhôm vát cạnh sang trọng */
+.laptop-base {
+    position: relative;
+    height: 14px;
+    background: linear-gradient(to bottom, #94a3b8, #64748b 40%, #475569 100%);
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+}
+.laptop-notch {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 55px;
+    height: 5px;
+    background: #334155;
+    border-radius: 0 0 5px 5px;
+}
+
+/* Symmetrical Grid Enhancements */
+.hero-3d-layout {
+    display: grid !important;
+    grid-template-columns: 1.05fr 0.95fr !important;
+    gap: 48px !important;
+    align-items: center !important;
+    min-height: 480px;
+    padding: 30px 0 50px 0 !important;
+}
+
+@media (max-width: 992px) {
+    .hero-3d-layout {
+        grid-template-columns: 1fr !important;
+        text-align: center;
+        gap: 32px !important;
+    }
+}
+
+.panel-container.max-w-640 {
+    max-width: 660px !important;
+    margin: 10px auto 40px auto !important;
+}
+
+.client-connect-card {
+    padding: 32px 36px 36px 36px !important;
+    border-radius: 24px !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--bg-card-border) !important;
+    box-shadow: 0 20px 45px rgba(244, 63, 94, 0.1) !important;
+}
+
+.client-action {
+    margin-top: 24px !important;
+    margin-bottom: 8px !important;
 }
