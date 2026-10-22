@@ -599,6 +599,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
         // Giữ ref để dùng trong anonymous inner classes
         final WebScreenCaster[] screenCasterRef = {null};
+        final WebAudioStreamer[] audioStreamerRef = {null};
         final WebInputHandler[] inputHandlerRef = {null};
 
         try {
@@ -689,7 +690,12 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                                 screenCasterRef[0].setE2eeKey(e2eeKey);
                             }
                             new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
-                            inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0]);
+
+                            // Khởi động WebAudioStreamer trên luồng riêng
+                            audioStreamerRef[0] = new WebAudioStreamer(out, this);
+                            new Thread(audioStreamerRef[0], "WebAudioStreamer-Thread").start();
+
+                            inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0], audioStreamerRef[0]);
                         } else {
                             int fails = failedAttempts.getOrDefault(clientIp, 0) + 1;
                             failedAttempts.put(clientIp, fails);

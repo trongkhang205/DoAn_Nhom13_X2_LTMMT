@@ -812,8 +812,20 @@
     async function handleBinaryFrame(arrayBuffer) {
         if (!isAuthenticated) return;
 
-        // Nhận diện và giải mã gói tin E2EE AES-256-GCM
         const firstByte = new Uint8Array(arrayBuffer, 0, 1)[0];
+
+        // 1. Nhận diện và phát Frame Âm Thanh (Audio Frame 0xAA)
+        if (firstByte === 0xAA) {
+            if (arrayBuffer.byteLength > 6) {
+                const audioView = new DataView(arrayBuffer);
+                const sampleRate = audioView.getInt32(1);
+                const pcmView = new DataView(arrayBuffer, 6);
+                playAudioPcmChunk(pcmView, sampleRate);
+            }
+            return;
+        }
+
+        // 2. Nhận diện và giải mã gói tin E2EE AES-256-GCM
         if (firstByte === 0xEE) {
             if (e2eeCryptoKey) {
                 try {
@@ -2023,4 +2035,77 @@
             console.warn('Lỗi dẫn xuất khóa E2EE:', err);
             return null;
         }
+    }
+
+    // ================= REMOTE AUDIO STREAMING =================
+    let isAudioEnabled = true;
+    let audioCtx = null;
+    let audioGainNode = null;
+    let nextAudioPlayTime = 0;
+
+    function initAudioContext() {
+        if (!audioCtx) {
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioContextClass({ sampleRate: 44100 });
+                audioGainNode = audioCtx.createGain();
+                audioGainNode.gain.value = 1.0;
+                audioGainNode.connect(audioCtx.destination);
+            } catch (e) {
+                console.warn('Web Audio API not supported:', e);
+            }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    function playAudioPcmChunk(pcmDataView, sampleRate) {
+        if (!isAudioEnabled) return;
+        initAudioContext();
+        if (!audioCtx || audioCtx.state !== 'running') return;
+
+        const numSamples = Math.floor(pcmDataView.byteLength / 2);
+        if (numSamples <= 0) return;
+
+        const floatSamples = new Float32Array(numSamples);
+        for (let i = 0; i < numSamples; i++) {
+            floatSamples[i] = pcmDataView.getInt16(i * 2, true) / 32768.0;
+        }
+
+        const audioBuffer = audioCtx.createBuffer(1, numSamples, sampleRate || 44100);
+        audioBuffer.copyToChannel(floatSamples, 0);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioGainNode);
+
+        const now = audioCtx.currentTime;
+        if (nextAudioPlayTime < now) {
+            nextAudioPlayTime = now;
+        }
+        source.start(nextAudioPlayTime);
+        nextAudioPlayTime += audioBuffer.duration;
+    }
+
+    // Nút Bật/Tắt Âm Thanh trên Toolbar
+    const btnToggleAudio = document.getElementById('btnToggleAudio');
+    const iconAudioOn = document.getElementById('iconAudioOn');
+    const iconAudioOff = document.getElementById('iconAudioOff');
+    const lblAudioStatus = document.getElementById('lblAudioStatus');
+
+    if (btnToggleAudio) {
+        btnToggleAudio.addEventListener('click', () => {
+            isAudioEnabled = !isAudioEnabled;
+            if (iconAudioOn) iconAudioOn.style.display = isAudioEnabled ? 'inline-block' : 'none';
+            if (iconAudioOff) iconAudioOff.style.display = isAudioEnabled ? 'none' : 'inline-block';
+            if (lblAudioStatus) lblAudioStatus.textContent = isAudioEnabled ? 'Âm Thanh: Bật' : 'Âm Thanh: Tắt';
+            btnToggleAudio.classList.toggle('active', isAudioEnabled);
+
+            if (isAudioEnabled) {
+                initAudioContext();
+            }
+            sendJson({ type: 'audio_toggle', enabled: isAudioEnabled });
+            showToast(isAudioEnabled ? 'Đã bật âm thanh máy từ xa' : 'Đã tắt tiếng (Mute) âm thanh', 'info');
+        });
     }

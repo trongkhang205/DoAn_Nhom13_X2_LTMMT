@@ -25,6 +25,7 @@ public class WebInputHandler {
     private final OutputStream out;
     private final ServerLogger logger;
     private final WebScreenCaster screenCaster;
+    private WebAudioStreamer audioStreamer;
     private Robot robot;
 
     // Thư mục lưu trữ tệp tin truyền nhận
@@ -50,14 +51,23 @@ public class WebInputHandler {
     private final TextMessageSender textSender;
 
     public WebInputHandler(OutputStream out, ServerLogger logger, WebScreenCaster screenCaster) {
-        this((text) -> WebSocketHelper.sendTextFrame(out, text), logger, screenCaster);
+        this((text) -> WebSocketHelper.sendTextFrame(out, text), logger, screenCaster, null);
+    }
+
+    public WebInputHandler(OutputStream out, ServerLogger logger, WebScreenCaster screenCaster, WebAudioStreamer audioStreamer) {
+        this((text) -> WebSocketHelper.sendTextFrame(out, text), logger, screenCaster, audioStreamer);
     }
 
     public WebInputHandler(TextMessageSender textSender, ServerLogger logger, WebScreenCaster screenCaster) {
+        this(textSender, logger, screenCaster, null);
+    }
+
+    public WebInputHandler(TextMessageSender textSender, ServerLogger logger, WebScreenCaster screenCaster, WebAudioStreamer audioStreamer) {
         this.out = null;
         this.textSender = textSender;
         this.logger = logger;
         this.screenCaster = screenCaster;
+        this.audioStreamer = audioStreamer;
         try {
             this.robot = new Robot();
             this.robot.setAutoDelay(2);
@@ -66,6 +76,10 @@ public class WebInputHandler {
                 logger.appendLog("WebInputHandler: Không thể khởi tạo Robot: " + e.getMessage());
             }
         }
+    }
+
+    public void setAudioStreamer(WebAudioStreamer audioStreamer) {
+        this.audioStreamer = audioStreamer;
     }
 
     private void sendText(String text) {
@@ -184,6 +198,15 @@ public class WebInputHandler {
                         boolean ok = screenCaster.switchScreen(targetIdx);
                         Rectangle b = screenCaster.getScreenBounds();
                         sendText("{\"type\":\"screen_switched\",\"success\":" + ok + ",\"index\":" + targetIdx + ",\"width\":" + (b != null ? b.width : 0) + ",\"height\":" + (b != null ? b.height : 0) + "}");
+                    }
+                    break;
+
+                // ===== ÂM THANH MÁY TÍNH TỪ XA (REMOTE AUDIO) =====
+                case "audio_toggle":
+                    if (data.containsKey("enabled") && audioStreamer != null) {
+                        boolean en = Boolean.parseBoolean(data.get("enabled"));
+                        audioStreamer.setEnabled(en);
+                        sendText("{\"type\":\"audio_status\",\"enabled\":" + en + "}");
                     }
                     break;
 

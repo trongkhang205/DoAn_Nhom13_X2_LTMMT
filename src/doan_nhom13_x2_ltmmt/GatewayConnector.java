@@ -25,6 +25,7 @@ public class GatewayConnector implements WebSocket.Listener {
     private volatile boolean connected = false;
 
     private WebScreenCaster screenCaster;
+    private WebAudioStreamer audioStreamer;
     private WebInputHandler inputHandler;
     private final StringBuilder textBuffer = new StringBuilder();
 
@@ -297,6 +298,10 @@ public class GatewayConnector implements WebSocket.Listener {
         if (screenCaster != null) {
             screenCaster.stop();
             screenCaster = null;
+        }
+        if (audioStreamer != null) {
+            audioStreamer.stop();
+            audioStreamer = null;
         }
         inputHandler = null;
     }
