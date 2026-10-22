@@ -74,4 +74,40 @@ public class CryptoHelper {
         byte[] plainText = cipher.doFinal(cipherText);
         return new String(plainText, StandardCharsets.UTF_8);
     }
+
+    /**
+     * Mã hóa mảng byte nhị phân bằng AES-256-GCM.
+     * Cấu trúc trả về: [12 bytes IV] + [CipherBytes + Tag]
+     */
+    public static byte[] encryptBinary(byte[] plainBytes, SecretKey key) throws Exception {
+        if (plainBytes == null || key == null) return plainBytes;
+        byte[] iv = new byte[IV_LENGTH];
+        new SecureRandom().nextBytes(iv);
+
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+        byte[] cipherBytes = cipher.doFinal(plainBytes);
+
+        byte[] combined = new byte[IV_LENGTH + cipherBytes.length];
+        System.arraycopy(iv, 0, combined, 0, IV_LENGTH);
+        System.arraycopy(cipherBytes, 0, combined, IV_LENGTH, cipherBytes.length);
+        return combined;
+    }
+
+    /**
+     * Giải mã mảng byte nhị phân AES-256-GCM
+     */
+    public static byte[] decryptBinary(byte[] combined, SecretKey key) throws Exception {
+        if (combined == null || key == null || combined.length <= IV_LENGTH) return combined;
+        byte[] iv = new byte[IV_LENGTH];
+        System.arraycopy(combined, 0, iv, 0, IV_LENGTH);
+
+        int cipherBytesLength = combined.length - IV_LENGTH;
+        byte[] cipherBytes = new byte[cipherBytesLength];
+        System.arraycopy(combined, IV_LENGTH, cipherBytes, 0, cipherBytesLength);
+
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+        return cipher.doFinal(cipherBytes);
+    }
 }

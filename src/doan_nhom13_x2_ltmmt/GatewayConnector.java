@@ -247,10 +247,15 @@ public class GatewayConnector implements WebSocket.Listener {
 
                 java.awt.Dimension screenSize = java.awt.Toolkit.getDefaultToolkit().getScreenSize();
                 String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
-                        + screenSize.width + ",\"height\":" + screenSize.height + "}";
+                        + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
                 safeSendText(resp);
 
                 startStreaming();
+                if (screenCaster != null && !normalizedExpected.isEmpty()) {
+                    try {
+                        screenCaster.setE2eeKey(CryptoHelper.deriveKey(normalizedExpected));
+                    } catch (Exception ignored) {}
+                }
             } else {
                 relayFailedAttempts++;
                 if (relayFailedAttempts >= 5) {

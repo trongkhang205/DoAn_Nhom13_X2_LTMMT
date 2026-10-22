@@ -107,6 +107,8 @@
     let isConnected = false;
     let isAuthenticated = false;
     let isControlEnabled = true;
+    let e2eeCryptoKey = null;
+    let isE2eeActive = false;
     let isFitMode = true;
     let serverWidth = 1920;
     let serverHeight = 1080;
@@ -728,6 +730,12 @@
                         valResolution.textContent = `${serverWidth}x${serverHeight}`;
                     }
 
+                    if (msg.e2ee) {
+                        isE2eeActive = true;
+                        const statE2ee = document.getElementById('statE2ee');
+                        if (statE2ee) statE2ee.style.display = 'inline-flex';
+                    }
+
                     startPingHeartbeat();
                     remoteCanvas.focus();
                     // Yêu cầu danh sách màn hình hiển thị (Đa màn hình)
@@ -801,8 +809,30 @@
         }
     }
 
-    function handleBinaryFrame(arrayBuffer) {
+    async function handleBinaryFrame(arrayBuffer) {
         if (!isAuthenticated) return;
+
+        // Nhận diện và giải mã gói tin E2EE AES-256-GCM
+        const firstByte = new Uint8Array(arrayBuffer, 0, 1)[0];
+        if (firstByte === 0xEE) {
+            if (e2eeCryptoKey) {
+                try {
+                    const iv = new Uint8Array(arrayBuffer, 1, 12);
+                    const ciphertext = new Uint8Array(arrayBuffer, 13);
+                    const decrypted = await window.crypto.subtle.decrypt(
+                        { name: 'AES-GCM', iv: iv },
+                        e2eeCryptoKey,
+                        ciphertext
+                    );
+                    arrayBuffer = decrypted;
+                } catch (decErr) {
+                    console.error('Lỗi giải mã E2EE Frame:', decErr);
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
 
         const dataView = new DataView(arrayBuffer);
         let frameType = 0;
@@ -1960,5 +1990,37 @@
 
         if (wrapScreenSelector) {
             wrapScreenSelector.style.display = screens.length > 0 ? 'inline-flex' : 'none';
+        }
+    }
+
+    // ================= END-TO-END ENCRYPTION (E2EE) =================
+    async function deriveE2eeKey(password) {
+        try {
+            if (!window.crypto || !window.crypto.subtle) return null;
+            const enc = new TextEncoder();
+            const baseKey = await window.crypto.subtle.importKey(
+                'raw',
+                enc.encode(password || ''),
+                { name: 'PBKDF2' },
+                false,
+                ['deriveKey']
+            );
+            const salt = enc.encode('DoAn_LTMMT_Nhom13_E2EE_Salt_2026');
+            e2eeCryptoKey = await window.crypto.subtle.deriveKey(
+                {
+                    name: 'PBKDF2',
+                    salt: salt,
+                    iterations: 65536,
+                    hash: 'SHA-256'
+                },
+                baseKey,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            return e2eeCryptoKey;
+        } catch (err) {
+            console.warn('Lỗi dẫn xuất khóa E2EE:', err);
+            return null;
         }
     }

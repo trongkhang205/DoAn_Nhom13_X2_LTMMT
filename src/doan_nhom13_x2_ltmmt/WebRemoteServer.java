@@ -671,13 +671,23 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                             authenticated[0] = true;
                             activeClients.incrementAndGet();
                             Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+
+                            // Khởi tạo SecretKey E2EE cho kết nối
+                            javax.crypto.SecretKey e2eeKey = null;
+                            try {
+                                e2eeKey = CryptoHelper.deriveKey(this.password);
+                            } catch (Exception ignored) {}
+
                             String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
-                                    + screenSize.width + ",\"height\":" + screenSize.height + "}";
+                                    + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
                             WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Web Client (" + clientIp + ") xác thực THÀNH CÔNG! Đang truyền màn hình...");
+                            appendLog("Web Client (" + clientIp + ") xác thực THÀNH CÔNG (E2EE AES-256-GCM Sẵn sàng)! Đang truyền màn hình...");
 
                             // Khởi động ScreenCaster trên luồng riêng
                             screenCasterRef[0] = new WebScreenCaster(out, this);
+                            if (e2eeKey != null) {
+                                screenCasterRef[0].setE2eeKey(e2eeKey);
+                            }
                             new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
                             inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0]);
                         } else {

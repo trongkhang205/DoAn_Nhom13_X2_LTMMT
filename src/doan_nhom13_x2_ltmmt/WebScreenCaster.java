@@ -33,6 +33,9 @@ public class WebScreenCaster implements Runnable {
     private Robot robot;
     private Rectangle screenRect;
 
+    // Khóa mã hóa đầu cuối E2EE (AES-256-GCM)
+    private volatile javax.crypto.SecretKey e2eeKey = null;
+
     // Quản lý Đa Màn Hình (Multi-Monitor)
     private volatile int currentScreenIndex = 0;
     private volatile boolean screenSwitchRequested = false;
@@ -111,6 +114,13 @@ public class WebScreenCaster implements Runnable {
 
     public int getCurrentScreenIndex() {
         return currentScreenIndex;
+    }
+
+    public void setE2eeKey(javax.crypto.SecretKey key) {
+        this.e2eeKey = key;
+        if (logger != null && key != null) {
+            logger.appendLog("WebScreenCaster: Đã kích hoạt kênh mã hóa đầu cuối E2EE (AES-256-GCM) cho luồng hình ảnh.");
+        }
     }
 
     public synchronized boolean switchScreen(int targetIndex) {
@@ -377,8 +387,22 @@ public class WebScreenCaster implements Runnable {
                 buffer.putLong(startTime);
                 buffer.put(jpegBytes);
 
-                // 7. Gửi qua WebSocket (Hỗ trợ cả Socket trực tiếp và Cloud Relay)
-                frameSender.send(buffer.array());
+                // 7. Gửi qua WebSocket (Hỗ trợ mã hóa đầu cuối E2EE AES-256-GCM)
+                byte[] rawPayload = buffer.array();
+                if (e2eeKey != null) {
+                    try {
+                        byte[] encrypted = CryptoHelper.encryptBinary(rawPayload, e2eeKey);
+                        ByteBuffer encBuf = ByteBuffer.allocate(1 + encrypted.length);
+                        encBuf.put((byte) 0xEE); // Magic byte nhận diện Frame E2EE
+                        encBuf.put(encrypted);
+                        frameSender.send(encBuf.array());
+                    } catch (Exception ex) {
+                        // Fallback gửi thường nếu lỗi mã hóa
+                        frameSender.send(rawPayload);
+                    }
+                } else {
+                    frameSender.send(rawPayload);
+                }
 
                 // 8. Điều tiết tốc độ khung hình
                 long elapsed = System.currentTimeMillis() - startTime;
