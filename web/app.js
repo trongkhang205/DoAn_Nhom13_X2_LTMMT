@@ -1159,13 +1159,87 @@
             if (!isOpen) wrapper.classList.add('open');
         });
     }
-    // Nút tròn hoa chữ "T" (Tool Orb) mở / đóng thanh công cụ
+    // Nút tròn chữ "T" (Tool Orb) mở / đóng thanh công cụ & Hỗ trợ KÉO THẢ (Draggable) tự do
     const btnToolOrb = document.getElementById('btnToolOrb');
     const floatingToolbarContainer = document.getElementById('floatingToolbarContainer');
     if (btnToolOrb && floatingToolbarContainer) {
-        btnToolOrb.addEventListener('click', (e) => {
-            e.stopPropagation();
-            floatingToolbarContainer.classList.toggle('expanded');
+        let isDraggingOrb = false;
+        let orbStartX = 0, orbStartY = 0;
+        let initialContainerX = 0, initialContainerY = 0;
+        let orbHasMoved = false;
+
+        const onOrbStart = (clientX, clientY) => {
+            isDraggingOrb = true;
+            orbHasMoved = false;
+            orbStartX = clientX;
+            orbStartY = clientY;
+            const rect = floatingToolbarContainer.getBoundingClientRect();
+            initialContainerX = rect.left;
+            initialContainerY = rect.top;
+        };
+
+        const onOrbMove = (clientX, clientY) => {
+            if (!isDraggingOrb) return;
+            const dx = clientX - orbStartX;
+            const dy = clientY - orbStartY;
+            if (Math.hypot(dx, dy) > 6) {
+                orbHasMoved = true;
+                floatingToolbarContainer.style.left = Math.max(10, Math.min(window.innerWidth - 60, initialContainerX + dx)) + 'px';
+                floatingToolbarContainer.style.top = Math.max(10, Math.min(window.innerHeight - 60, initialContainerY + dy)) + 'px';
+                floatingToolbarContainer.style.right = 'auto';
+                floatingToolbarContainer.style.transform = 'none';
+            }
+        };
+
+        const onOrbEnd = () => {
+            if (!isDraggingOrb) return;
+            isDraggingOrb = false;
+            if (!orbHasMoved) {
+                // Nhấp nhẹ (tap/click): Đóng hoặc mở thanh công cụ
+                floatingToolbarContainer.classList.toggle('expanded');
+            } else {
+                // Tự động hít (dock) sang mép trái hoặc phải màn hình
+                const rect = floatingToolbarContainer.getBoundingClientRect();
+                const screenW = window.innerWidth;
+                if (rect.left + rect.width / 2 < screenW / 2) {
+                    floatingToolbarContainer.style.left = '16px';
+                    floatingToolbarContainer.style.right = 'auto';
+                    floatingToolbarContainer.style.alignItems = 'flex-start';
+                } else {
+                    floatingToolbarContainer.style.left = 'auto';
+                    floatingToolbarContainer.style.right = '16px';
+                    floatingToolbarContainer.style.alignItems = 'flex-end';
+                }
+            }
+        };
+
+        btnToolOrb.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            onOrbStart(e.clientX, e.clientY);
+            const onMouseMove = (me) => onOrbMove(me.clientX, me.clientY);
+            const onMouseUp = () => {
+                onOrbEnd();
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+
+        btnToolOrb.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                onOrbStart(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        btnToolOrb.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1) {
+                onOrbMove(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        btnToolOrb.addEventListener('touchend', () => {
+            onOrbEnd();
         });
 
         // Click bên ngoài thanh công cụ để tự động thu gọn lại thành nút tròn T
@@ -1499,6 +1573,10 @@
                 });
             }
             renderUploadQueue();
+            // TỰ ĐỘNG BẮT ĐẦU TẢI LÊN NGAY LẬP TỨC (Cho điện thoại & PC, không bắt người dùng bấm thêm nút)
+            setTimeout(() => {
+                startUploadQueue();
+            }, 100);
         }
 
         function renderUploadQueue() {
@@ -1509,7 +1587,14 @@
             }
 
             if (uploadQueueContainer) uploadQueueContainer.style.display = 'block';
-            if (lblQueueCount) lblQueueCount.textContent = `Hàng đợi gửi: ${uploadQueue.length} tệp`;
+            const pendingCount = uploadQueue.filter(i => i.status !== 'success').length;
+            if (lblQueueCount) {
+                lblQueueCount.innerHTML = `Hàng đợi: <b>${uploadQueue.length} tệp</b> ${!isUploadingQueue && pendingCount > 0 ? `<button type="button" class="btn-queue-start-inline" id="btnStartQueueInline">🚀 Gửi Ngay (${pendingCount})</button>` : ''}`;
+                const btnInline = document.getElementById('btnStartQueueInline');
+                if (btnInline) {
+                    btnInline.addEventListener('click', () => startUploadQueue());
+                }
+            }
             if (btnStartUpload && !isUploadingQueue) btnStartUpload.disabled = false;
 
             if (!uploadQueueList) return;
@@ -1551,126 +1636,134 @@
         }
 
         // Bắt đầu truyền toàn bộ hàng đợi tệp tin với bộ đệm 128KB & Backpressure
-        if (btnStartUpload) {
-            btnStartUpload.addEventListener('click', async () => {
-                if (isUploadingQueue || uploadQueue.length === 0) return;
-                isUploadingQueue = true;
-                btnStartUpload.disabled = true;
-                if (btnClearQueue) btnClearQueue.style.display = 'none';
+        async function startUploadQueue() {
+            if (isUploadingQueue || uploadQueue.length === 0) return;
+            const hasPending = uploadQueue.some(i => i.status !== 'success');
+            if (!hasPending) return;
 
-                if (uploadProgressContainer) uploadProgressContainer.style.display = 'block';
-                if (uploadProgressBar) uploadProgressBar.style.width = '0%';
-                if (lblUploadSpeed) lblUploadSpeed.textContent = '0.0 MB/s';
-                if (lblUploadProgress) lblUploadProgress.textContent = 'Khởi động truyền tệp...';
+            isUploadingQueue = true;
+            if (btnStartUpload) btnStartUpload.disabled = true;
+            if (btnClearQueue) btnClearQueue.style.display = 'none';
 
-                let successCount = 0;
-                const totalFiles = uploadQueue.length;
+            if (uploadProgressContainer) uploadProgressContainer.style.display = 'block';
+            if (uploadProgressBar) uploadProgressBar.style.width = '0%';
+            if (lblUploadSpeed) lblUploadSpeed.textContent = '0.0 MB/s';
+            if (lblUploadProgress) lblUploadProgress.textContent = 'Khởi động truyền tệp...';
 
-                for (let fIdx = 0; fIdx < totalFiles; fIdx++) {
-                    const item = uploadQueue[fIdx];
-                    if (item.status === 'success') continue;
+            let successCount = 0;
+            const totalFiles = uploadQueue.length;
 
-                    item.status = 'uploading';
-                    renderUploadQueue();
+            for (let fIdx = 0; fIdx < totalFiles; fIdx++) {
+                const item = uploadQueue[fIdx];
+                if (item.status === 'success') {
+                    successCount++;
+                    continue;
+                }
 
-                    const file = item.file;
-                    const fileId = item.id;
-                    const totalSize = file.size;
+                item.status = 'uploading';
+                renderUploadQueue();
 
-                    // 1. Thông báo bắt đầu tệp
+                const file = item.file;
+                const fileId = item.id;
+                const totalSize = file.size;
+
+                // 1. Thông báo bắt đầu tệp
+                sendJson({
+                    type: 'file_upload_start',
+                    fileId: fileId,
+                    name: file.name,
+                    size: totalSize
+                });
+
+                // 2. Cắt lát và gửi từng chunk 128KB
+                const chunkSize = 128 * 1024; // 128KB tối ưu
+                const totalChunks = Math.ceil(totalSize / chunkSize) || 1;
+                let sentBytes = 0;
+                const uploadStartTime = performance.now();
+
+                for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
+                    // Kiểm soát dòng dữ liệu (Backpressure) tránh nghẽn bộ đệm WebSocket
+                    while (ws && ws.bufferedAmount > 384 * 1024) {
+                        await new Promise(r => setTimeout(r, 4));
+                    }
+
+                    const start = cIdx * chunkSize;
+                    const end = Math.min(start + chunkSize, totalSize);
+                    const slice = file.slice(start, end);
+                    const b64 = await readBlobAsBase64(slice);
+
                     sendJson({
-                        type: 'file_upload_start',
+                        type: 'file_upload_chunk',
                         fileId: fileId,
-                        name: file.name,
-                        size: totalSize
+                        data: b64
                     });
 
-                    // 2. Cắt lát và gửi từng chunk 128KB
-                    const chunkSize = 128 * 1024; // 128KB tối ưu
-                    const totalChunks = Math.ceil(totalSize / chunkSize) || 1;
-                    let sentBytes = 0;
-                    const uploadStartTime = performance.now();
+                    sentBytes += (end - start);
+                    const percent = Math.min(99, Math.round((sentBytes / totalSize) * 100));
+                    item.percent = percent;
 
-                    for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
-                        // Kiểm soát dòng dữ liệu (Backpressure) tránh nghẽn bộ đệm WebSocket
-                        while (ws && ws.bufferedAmount > 384 * 1024) {
-                            await new Promise(r => setTimeout(r, 4));
-                        }
+                    // Cập nhật giao diện tốc độ MB/s
+                    const elapsedSec = (performance.now() - uploadStartTime) / 1000;
+                    const speedMBps = elapsedSec > 0 ? ((sentBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
+                    if (lblUploadSpeed) lblUploadSpeed.textContent = `${speedMBps} MB/s`;
 
-                        const start = cIdx * chunkSize;
-                        const end = Math.min(start + chunkSize, totalSize);
-                        const slice = file.slice(start, end);
-                        const b64 = await readBlobAsBase64(slice);
-
-                        sendJson({
-                            type: 'file_upload_chunk',
-                            fileId: fileId,
-                            data: b64
-                        });
-
-                        sentBytes += (end - start);
-                        const percent = Math.min(99, Math.round((sentBytes / totalSize) * 100));
-                        item.percent = percent;
-
-                        // Cập nhật giao diện tốc độ MB/s
-                        const elapsedSec = (performance.now() - uploadStartTime) / 1000;
-                        const speedMBps = elapsedSec > 0 ? ((sentBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
-                        if (lblUploadSpeed) lblUploadSpeed.textContent = `${speedMBps} MB/s`;
-
-                        const overallPercent = Math.min(99, Math.round(((fIdx + (sentBytes / totalSize)) / totalFiles) * 100));
-                        if (uploadProgressBar) uploadProgressBar.style.width = `${overallPercent}%`;
-                        if (lblUploadProgress) {
-                            lblUploadProgress.textContent = `Tệp ${fIdx + 1}/${totalFiles} (${escapeHtml(file.name)}): ${percent}%`;
-                        }
-
-                        const badgeEl = document.getElementById(`badge_${item.id}`);
-                        if (badgeEl) badgeEl.textContent = `${percent}%`;
-                    }
-
-                    // 3. Gửi lệnh kết thúc tệp và CHỜ XÁC THỰC LƯU XONG TỪ MÁY CHỦ (ACK)
+                    const overallPercent = Math.min(99, Math.round(((fIdx + (sentBytes / totalSize)) / totalFiles) * 100));
+                    if (uploadProgressBar) uploadProgressBar.style.width = `${overallPercent}%`;
                     if (lblUploadProgress) {
-                        lblUploadProgress.textContent = `Đang xác thực lưu tệp [${escapeHtml(file.name)}] trên máy chủ...`;
+                        lblUploadProgress.textContent = `Tệp ${fIdx + 1}/${totalFiles} (${escapeHtml(file.name)}): ${percent}%`;
                     }
-                    sendJson({ type: 'file_upload_end', fileId: fileId });
 
-                    // Chờ Server phản hồi file_upload_success
-                    const ackResult = await waitForUploadAck(fileId);
-                    if (ackResult && !ackResult.error) {
-                        item.status = 'success';
-                        item.percent = 100;
-                        successCount++;
-                    } else {
-                        item.status = 'error';
-                    }
-                    renderUploadQueue();
+                    const badgeEl = document.getElementById(`badge_${item.id}`);
+                    if (badgeEl) badgeEl.textContent = `${percent}%`;
                 }
 
-                // Hoàn tất toàn bộ hàng đợi
-                isUploadingQueue = false;
-                if (btnClearQueue) btnClearQueue.style.display = 'inline-block';
-                if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+                // 3. Gửi lệnh kết thúc tệp và CHỜ XÁC THỰC LƯU XONG TỪ MÁY CHỦ (ACK)
                 if (lblUploadProgress) {
-                    lblUploadProgress.textContent = `Hoàn tất gửi ${successCount}/${totalFiles} tệp tin!`;
+                    lblUploadProgress.textContent = `Đang xác thực lưu tệp [${escapeHtml(file.name)}] trên máy chủ...`;
                 }
+                sendJson({ type: 'file_upload_end', fileId: fileId });
 
-                showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin lên máy chủ!`, 'success');
-                sendJson({ type: 'file_list' }); // Cập nhật lại danh sách tệp
+                // Chờ Server phản hồi file_upload_success (timeout 12s tránh đơ)
+                const ackResult = await waitForUploadAck(fileId);
+                if (ackResult && !ackResult.error) {
+                    item.status = 'success';
+                    item.percent = 100;
+                    successCount++;
+                } else {
+                    item.status = 'error';
+                }
+                renderUploadQueue();
+            }
 
-                setTimeout(() => {
-                    if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
-                    if (btnStartUpload) btnStartUpload.disabled = false;
-                }, 3000);
-            });
+            // Hoàn tất toàn bộ hàng đợi
+            isUploadingQueue = false;
+            if (btnClearQueue) btnClearQueue.style.display = 'inline-block';
+            if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+            if (lblUploadProgress) {
+                lblUploadProgress.textContent = `Hoàn tất gửi ${successCount}/${totalFiles} tệp tin!`;
+            }
+
+            showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin lên máy chủ!`, 'success');
+            sendJson({ type: 'file_list' }); // Cập nhật lại danh sách tệp
+
+            setTimeout(() => {
+                if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
+                if (btnStartUpload) btnStartUpload.disabled = false;
+            }, 3000);
+        }
+
+        if (btnStartUpload) {
+            btnStartUpload.addEventListener('click', () => startUploadQueue());
         }
     }
 
-    // Helper: Chờ phản hồi ACK từ máy chủ với timeout 45s
+    // Helper: Chờ phản hồi ACK từ máy chủ với timeout 12s
     function waitForUploadAck(fileId) {
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
                 delete uploadAckWaiters[fileId];
-                resolve({ error: false }); // Quá thời gian thì tiếp tục
-            }, 45000);
+                resolve({ error: false }); // Quá 12s tự động hoàn tất để không treo hàng đợi
+            }, 12000);
 
             uploadAckWaiters[fileId] = (msg) => {
                 clearTimeout(timer);

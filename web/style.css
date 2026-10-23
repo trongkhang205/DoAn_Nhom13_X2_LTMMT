@@ -1281,48 +1281,76 @@ body {
 .floating-toolbar-container {
     position: absolute;
     top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 20px; /* Di chuyển sang góc phải, không che chính giữa màn hình */
+    left: auto;
+    transform: none;
     z-index: 2200;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-end;
     pointer-events: auto;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Nút tròn biểu tượng hoa và chữ T */
+/* Nút tròn Tool Orb chữ T: Thiết kế mờ tinh tế khi nhàn rỗi, không che màn hình */
 .tool-orb-btn {
     position: relative;
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45), 0 0 14px rgba(6, 182, 212, 0.35);
-    cursor: pointer;
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.85) 0%, rgba(6, 182, 212, 0.85) 100%);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 10px rgba(6, 182, 212, 0.25);
+    cursor: grab;
     display: flex;
     align-items: center;
     justify-content: center;
     outline: none;
-    transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0.35; /* Tự động làm mờ khi xem bình thường để tăng thẩm mỹ */
+    backdrop-filter: blur(8px);
+    transition: opacity 0.3s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
     z-index: 2210;
+    user-select: none;
+    touch-action: none;
 }
 
-.tool-orb-btn:hover {
+/* Sáng rõ 100% khi rê chuột hoặc chạm tay */
+.tool-orb-btn:hover,
+.tool-orb-btn:active,
+.tool-orb-btn:focus-visible {
+    opacity: 1 !important;
     transform: scale(1.08);
-    box-shadow: 0 8px 25px rgba(37, 99, 235, 0.6), 0 0 18px rgba(6, 182, 212, 0.5);
+    box-shadow: 0 8px 25px rgba(37, 99, 235, 0.65), 0 0 18px rgba(6, 182, 212, 0.5);
+    cursor: grabbing;
 }
 
-.tool-orb-btn:active {
-    transform: scale(0.95);
+/* Khi Full màn hình: Làm mờ sâu hơn nữa (0.22) khi không chạm */
+:fullscreen .tool-orb-btn,
+:-webkit-full-screen .tool-orb-btn,
+.viewer-modal:fullscreen .tool-orb-btn {
+    opacity: 0.22;
+}
+
+:fullscreen .tool-orb-btn:hover,
+:fullscreen .tool-orb-btn:active,
+:-webkit-full-screen .tool-orb-btn:hover,
+:-webkit-full-screen .tool-orb-btn:active {
+    opacity: 1 !important;
+}
+
+/* Khi đang mở thanh công cụ (.expanded) thì luôn sáng rõ 100% */
+.floating-toolbar-container.expanded .tool-orb-btn {
+    opacity: 1 !important;
+    border-color: #38bdf8;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(168, 85, 247, 0.9));
+    box-shadow: 0 6px 25px rgba(56, 189, 248, 0.5), 0 0 15px rgba(255, 255, 255, 0.5);
 }
 
 .orb-glow-ring {
     position: absolute;
     inset: -4px;
     border-radius: 50%;
-    border: 1.5px dashed rgba(56, 189, 248, 0.8);
+    border: 1.5px dashed rgba(56, 189, 248, 0.7);
     animation: orbSpin 12s linear infinite;
     pointer-events: none;
 }
@@ -1343,8 +1371,8 @@ body {
 
 .orb-tech-icon {
     position: absolute;
-    width: 13px;
-    height: 13px;
+    width: 12px;
+    height: 12px;
     top: 5px;
     right: 5px;
     color: #e0f2fe;
@@ -1354,7 +1382,7 @@ body {
 
 .orb-letter {
     font-family: 'Plus Jakarta Sans', sans-serif;
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 800;
     color: #ffffff;
     text-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), 0 0 10px rgba(255, 255, 255, 0.8);
@@ -1365,8 +1393,9 @@ body {
 .orb-tooltip {
     position: absolute;
     top: 115%;
-    left: 50%;
-    transform: translateX(-50%) translateY(6px);
+    right: 0;
+    left: auto;
+    transform: translateY(6px);
     background: rgba(20, 10, 25, 0.92);
     color: #fff;
     padding: 4px 10px;
@@ -1383,19 +1412,30 @@ body {
 
 .tool-orb-btn:hover .orb-tooltip {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translateY(0);
 }
 
-/* Thanh công cụ khi thu gọn (ẩn hoàn toàn, không nhô ra bất kỳ góc nào) */
+/* Ẩn hoàn toàn tooltip trên điện thoại để không che màn hình */
+@media (max-width: 768px) {
+    .floating-toolbar-container {
+        top: 10px;
+        right: 12px;
+    }
+    .orb-tooltip {
+        display: none !important;
+    }
+}
+
+/* Thanh công cụ khi thu gọn (mở ra từ góc phải) */
 .floating-toolbar {
     position: relative;
     top: 0;
-    left: 0;
+    right: 0;
     transform: translateY(-14px) scale(0.92);
     z-index: 2200;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-end;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -1409,12 +1449,6 @@ body {
     visibility: visible;
     pointer-events: auto;
     transform: translateY(0) scale(1);
-}
-
-.floating-toolbar-container.expanded .tool-orb-btn {
-    border-color: #38bdf8;
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(168, 85, 247, 0.85));
-    box-shadow: 0 6px 25px rgba(56, 189, 248, 0.5), 0 0 15px rgba(255, 255, 255, 0.5);
 }
 
 .toolbar-content {
@@ -3004,4 +3038,54 @@ body.viewer-connected-mode .glow-orb {
 body.viewer-connected-mode {
     background: #000000 !important;
     overflow: hidden !important;
+}
+
+/* Nút Gửi Ngay Inline trong Hàng đợi tệp tin */
+.btn-queue-start-inline {
+    background: linear-gradient(135deg, #10b981, #06b6d4);
+    color: #ffffff;
+    border: none;
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45);
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-queue-start-inline:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.65);
+}
+
+.btn-queue-start-inline:active {
+    transform: scale(0.96);
+}
+
+/* Tối ưu hóa Modal truyền tệp hiển thị hoàn hảo trên điện thoại xoay ngang */
+@media (max-height: 520px) {
+    .file-modal-card {
+        max-height: 96vh !important;
+        margin: 4px auto !important;
+    }
+    .file-modal-card .modal-body {
+        max-height: calc(96vh - 85px) !important;
+        overflow-y: auto !important;
+        padding: 10px 14px !important;
+    }
+    .drop-zone {
+        padding: 12px 10px !important;
+    }
+    .drop-icon {
+        width: 26px !important;
+        height: 26px !important;
+        margin-bottom: 4px !important;
+    }
+    .file-tabs {
+        margin-bottom: 8px !important;
+    }
 }
