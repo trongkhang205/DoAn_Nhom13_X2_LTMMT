@@ -2988,3 +2988,20 @@ body {
     margin-top: 24px !important;
     margin-bottom: 8px !important;
 }
+
+/* ================= VIEWER CONNECTED FULL-THROUGHPUT PERFORMANCE MODE ================= */
+body.viewer-connected-mode #networkCanvas,
+body.viewer-connected-mode #appNavbar,
+body.viewer-connected-mode #mainContent,
+body.viewer-connected-mode .ambient-glow,
+body.viewer-connected-mode .cyber-grid-bg,
+body.viewer-connected-mode .glow-orb {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+body.viewer-connected-mode {
+    background: #000000 !important;
+    overflow: hidden !important;
+}

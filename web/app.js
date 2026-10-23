@@ -783,9 +783,15 @@
 
                     // Mở cửa sổ Remote Viewer toàn màn hình
                     remoteViewerModal.classList.add('active');
-                    if (typeof window.pausePetalsAnimation === 'function') {
-                        window.pausePetalsAnimation(true);
+                    document.body.classList.add('viewer-connected-mode');
+                    if (typeof window.pauseNetworkAnimation === 'function') {
+                        window.pauseNetworkAnimation(true);
                     }
+                    if (logPollInterval) {
+                        clearInterval(logPollInterval);
+                        logPollInterval = null;
+                    }
+                    setTimeout(updateCanvasRect, 50);
                     showToast('Xác thực THÀNH CÔNG! Bắt đầu điều khiển máy tính.', 'success');
 
                     if (msg.width && msg.height) {
@@ -903,6 +909,74 @@
         }
     }
 
+    // ================= STRICT FIFO FRAME RENDERING QUEUE =================
+    // Loại bỏ hoàn toàn lỗi hình giật/nhấp nháy do giải mã Promise bất đồng bộ ngoài thứ tự
+    const frameQueue = [];
+    let isProcessingFrame = false;
+
+    function enqueueFrame(frameTask) {
+        frameQueue.push(frameTask);
+        if (!isProcessingFrame) {
+            processFrameQueue();
+        }
+    }
+
+    async function processFrameQueue() {
+        if (isProcessingFrame) return;
+        isProcessingFrame = true;
+
+        while (frameQueue.length > 0) {
+            // Tự động triệt tiêu độ trễ: Nếu hàng đợi bị ứ đọng (> 3 frames), tự động nhảy cóc tới Keyframe mới nhất
+            if (frameQueue.length > 3) {
+                let newestKeyIdx = -1;
+                for (let i = frameQueue.length - 1; i >= 0; i--) {
+                    if (frameQueue[i].isKeyframe) {
+                        newestKeyIdx = i;
+                        break;
+                    }
+                }
+                if (newestKeyIdx > 0) {
+                    frameQueue.splice(0, newestKeyIdx);
+                }
+            }
+
+            const task = frameQueue.shift();
+            if (!task) break;
+
+            try {
+                if (window.createImageBitmap) {
+                    const bitmap = await createImageBitmap(task.blob);
+                    ctx.drawImage(bitmap, task.targetX, task.targetY, task.targetW, task.targetH);
+                    bitmap.close();
+                } else {
+                    await new Promise((resolve) => {
+                        const url = URL.createObjectURL(task.blob);
+                        const img = new Image();
+                        img.onload = () => {
+                            ctx.drawImage(img, task.targetX, task.targetY, task.targetW, task.targetH);
+                            URL.revokeObjectURL(url);
+                            resolve();
+                        };
+                        img.onerror = () => {
+                            URL.revokeObjectURL(url);
+                            resolve();
+                        };
+                        img.src = url;
+                    });
+                }
+
+                if (canvasLoading.style.display !== 'none') {
+                    canvasLoading.style.display = 'none';
+                }
+                updateFpsCounter();
+            } catch (renderErr) {
+                console.warn('[Render Queue Error]:', renderErr);
+            }
+        }
+
+        isProcessingFrame = false;
+    }
+
     async function handleBinaryFrame(arrayBuffer) {
         if (!isAuthenticated) return;
 
@@ -1011,42 +1085,15 @@
             }
         }
 
-        function drawWithImageFallback(blobData, tx, ty, tw, th) {
-            const url = URL.createObjectURL(blobData);
-            const img = new Image();
-            img.onload = () => {
-                ctx.drawImage(img, tx, ty, tw, th);
-                URL.revokeObjectURL(url);
-                if (canvasLoading.style.display !== 'none') {
-                    canvasLoading.style.display = 'none';
-                }
-                updateFpsCounter();
-            };
-            img.onerror = () => {
-                URL.revokeObjectURL(url);
-            };
-            img.src = url;
-        }
-
         const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
-
-        if (window.createImageBitmap) {
-            createImageBitmap(blob)
-                .then(bitmap => {
-                    ctx.drawImage(bitmap, targetX, targetY, targetW, targetH);
-                    bitmap.close();
-
-                    if (canvasLoading.style.display !== 'none') {
-                        canvasLoading.style.display = 'none';
-                    }
-                    updateFpsCounter();
-                })
-                .catch(err => {
-                    drawWithImageFallback(blob, targetX, targetY, targetW, targetH);
-                });
-        } else {
-            drawWithImageFallback(blob, targetX, targetY, targetW, targetH);
-        }
+        enqueueFrame({
+            blob: blob,
+            targetX: targetX,
+            targetY: targetY,
+            targetW: targetW,
+            targetH: targetH,
+            isKeyframe: (frameType === 0)
+        });
     }
 
     // Đóng Viewer / Ngắt kết nối
@@ -1069,9 +1116,15 @@
         }
         setConnectingButton(false);
         remoteViewerModal.classList.remove('active');
-        if (typeof window.pausePetalsAnimation === 'function') {
-            window.pausePetalsAnimation(false);
+        document.body.classList.remove('viewer-connected-mode');
+        if (typeof window.pauseNetworkAnimation === 'function') {
+            window.pauseNetworkAnimation(false);
         }
+        if (!logPollInterval && document.getElementById('viewServer').classList.contains('active')) {
+            logPollInterval = setInterval(fetchServerLogs, 2500);
+        }
+        frameQueue.length = 0;
+        isProcessingFrame = false;
         const toolbarContainer = document.getElementById('floatingToolbarContainer');
         if (toolbarContainer) toolbarContainer.classList.remove('expanded');
         canvasLoading.style.display = 'flex';
@@ -1219,10 +1272,23 @@
     });
 
     // ================= MOUSE & KEYBOARD CAPTURE =================
+    // Cache getBoundingClientRect to eliminate layout thrashing during mousemove
+    let cachedCanvasRect = null;
+    function updateCanvasRect() {
+        if (remoteCanvas && remoteViewerModal && remoteViewerModal.classList.contains('active')) {
+            cachedCanvasRect = remoteCanvas.getBoundingClientRect();
+        }
+    }
+    window.addEventListener('resize', updateCanvasRect);
+    window.addEventListener('scroll', updateCanvasRect);
+
     function getCanvasCoordinates(e) {
-        const rect = remoteCanvas.getBoundingClientRect();
-        const scaleX = serverWidth / rect.width;
-        const scaleY = serverHeight / rect.height;
+        if (!cachedCanvasRect || cachedCanvasRect.width === 0) {
+            cachedCanvasRect = remoteCanvas.getBoundingClientRect();
+        }
+        const rect = cachedCanvasRect;
+        const scaleX = serverWidth / (rect.width || 1);
+        const scaleY = serverHeight / (rect.height || 1);
 
         const clientX = e.clientX - rect.left;
         const clientY = e.clientY - rect.top;
@@ -1232,6 +1298,7 @@
 
         return { x, y };
     }
+
 
     remoteCanvas.addEventListener('mousemove', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
@@ -1963,217 +2030,6 @@
         });
     });
 
-    // ================= 3D HERO CANVAS ENGINE (THREE.JS) =================
-    function initHero3DScene() {
-        const canvas = document.getElementById('hero3dCanvas');
-        const fallback = document.getElementById('hero3dFallback');
-        if (!canvas) return;
-
-        // Fallback if Three.js CDN is unavailable
-        if (typeof THREE === 'undefined') {
-            if (fallback) fallback.style.display = 'block';
-            return;
-        }
-
-        const isMobileScreen = window.innerWidth < 768;
-
-        try {
-            const scene = new THREE.Scene();
-            const width = canvas.clientWidth || 400;
-            const height = canvas.clientHeight || 380;
-            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-            camera.position.set(0, 1.2, 5.4);
-
-            const renderer = new THREE.WebGLRenderer({
-                canvas: canvas,
-                alpha: true,
-                antialias: !isMobileScreen,
-                powerPreference: 'high-performance'
-            });
-            renderer.setSize(width, height, false);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-            // Lights
-            const ambient = new THREE.AmbientLight(0xffffff, 0.95);
-            scene.add(ambient);
-
-            const dirLight = new THREE.DirectionalLight(0xfff0f5, 1.4);
-            dirLight.position.set(4, 6, 3);
-            scene.add(dirLight);
-
-            const pinkPoint = new THREE.PointLight(0xec4899, 2.5, 15);
-            pinkPoint.position.set(-3, 2, 2);
-            scene.add(pinkPoint);
-
-            const cyanPoint = new THREE.PointLight(0x38bdf8, 2.2, 15);
-            cyanPoint.position.set(3, -1, 2);
-            scene.add(cyanPoint);
-
-            // Laptop Group
-            const laptopGroup = new THREE.Group();
-            laptopGroup.position.set(0, -0.32, 0);
-
-            // 1. Laptop Base
-            const baseGeo = new THREE.BoxGeometry(3.1, 0.12, 2.1);
-            const darkMetal = new THREE.MeshStandardMaterial({
-                color: 0x1a1222,
-                roughness: 0.3,
-                metalness: 0.8
-            });
-            const baseMesh = new THREE.Mesh(baseGeo, darkMetal);
-            baseMesh.position.set(0, -0.06, 0.2);
-            laptopGroup.add(baseMesh);
-
-            // Trackpad
-            const padGeo = new THREE.PlaneGeometry(0.85, 0.5);
-            const padMat = new THREE.MeshStandardMaterial({ color: 0x281c34, roughness: 0.5 });
-            const padMesh = new THREE.Mesh(padGeo, padMat);
-            padMesh.rotation.x = -Math.PI / 2;
-            padMesh.position.set(0, 0.005, 0.9);
-            laptopGroup.add(padMesh);
-
-            // Keyboard Area
-            const kbGeo = new THREE.PlaneGeometry(2.7, 1.15);
-            const kbMat = new THREE.MeshStandardMaterial({ color: 0x140e1c, roughness: 0.6, metalness: 0.3 });
-            const kbMesh = new THREE.Mesh(kbGeo, kbMat);
-            kbMesh.rotation.x = -Math.PI / 2;
-            kbMesh.position.set(0, 0.005, -0.05);
-            laptopGroup.add(kbMesh);
-
-            // 2. Laptop Lid (Góc mở chuẩn 106 độ thanh thoát, hướng thẳng về camera)
-            const lidGroup = new THREE.Group();
-            lidGroup.position.set(0, 0, -0.85);
-            lidGroup.rotation.x = -0.28;
-
-            const lidCasingGeo = new THREE.BoxGeometry(3.1, 2.05, 0.07);
-            const lidCasing = new THREE.Mesh(lidCasingGeo, darkMetal);
-            lidCasing.position.set(0, 1.025, 0);
-            lidGroup.add(lidCasing);
-
-            // Glowing Screen
-            const screenGeo = new THREE.PlaneGeometry(2.85, 1.78);
-            const screenMat = new THREE.MeshStandardMaterial({
-                color: 0x0f172a,
-                emissive: 0xec4899,
-                emissiveIntensity: 0.85,
-                roughness: 0.2
-            });
-            const screenMesh = new THREE.Mesh(screenGeo, screenMat);
-            screenMesh.position.set(0, 1.025, 0.04);
-            lidGroup.add(screenMesh);
-
-            // Top Status Bar on Screen
-            const barGeo = new THREE.PlaneGeometry(2.7, 0.12);
-            const barMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
-            const barMesh = new THREE.Mesh(barGeo, barMat);
-            barMesh.position.set(0, 1.76, 0.045);
-            lidGroup.add(barMesh);
-
-            laptopGroup.add(lidGroup);
-
-            // 3. Torus Orbit Wireframe Rings
-            const ringGeo1 = new THREE.TorusGeometry(2.4, 0.012, 16, 80);
-            const ringMat1 = new THREE.MeshBasicMaterial({ color: 0xf43f5e, wireframe: true, transparent: true, opacity: 0.6 });
-            const ring1 = new THREE.Mesh(ringGeo1, ringMat1);
-            ring1.rotation.x = Math.PI / 3;
-            ring1.position.set(0, 0.8, 0);
-            laptopGroup.add(ring1);
-
-            const ringGeo2 = new THREE.TorusGeometry(2.7, 0.01, 16, 80);
-            const ringMat2 = new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true, transparent: true, opacity: 0.5 });
-            const ring2 = new THREE.Mesh(ringGeo2, ringMat2);
-            ring2.rotation.x = -Math.PI / 4;
-            ring2.rotation.y = Math.PI / 6;
-            ring2.position.set(0, 0.8, 0);
-            laptopGroup.add(ring2);
-
-            scene.add(laptopGroup);
-
-            // 4. Floating Particles
-            const particleCount = isMobileScreen ? 60 : 160;
-            const pGeo = new THREE.BufferGeometry();
-            const pPos = new Float32Array(particleCount * 3);
-            for (let i = 0; i < particleCount; i++) {
-                pPos[i * 3] = (Math.random() - 0.5) * 10;
-                pPos[i * 3 + 1] = (Math.random() - 0.5) * 7;
-                pPos[i * 3 + 2] = (Math.random() - 0.5) * 7;
-            }
-            pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-            const pMat = new THREE.PointsMaterial({
-                color: 0xf472b6,
-                size: 0.06,
-                transparent: true,
-                opacity: 0.8
-            });
-            const particles = new THREE.Points(pGeo, pMat);
-            scene.add(particles);
-
-            // Mouse parallax
-            let mouseX = 0, mouseY = 0;
-            window.addEventListener('mousemove', (e) => {
-                const cx = window.innerWidth / 2;
-                const cy = window.innerHeight / 2;
-                mouseX = (e.clientX - cx) / cx;
-                mouseY = (e.clientY - cy) / cy;
-            });
-
-            // Animation Loop
-            let clock = new THREE.Clock();
-
-            function animate() {
-                requestAnimationFrame(animate);
-                if (remoteViewerModal && remoteViewerModal.classList.contains('active')) {
-                    // Khi dang mo Remote Viewer, tam dung render 3D de giai phong hoan toan GPU/CPU cho giai ma video
-                    return;
-                }
-                const t = clock.getElapsedTime();
-
-                // Smooth floating motion
-                laptopGroup.position.y = -0.15 + Math.sin(t * 1.8) * 0.08;
-                
-                // Parallax smoothing với góc nhìn 3/4 isometric cao cấp
-                const targetRotX = mouseY * 0.22 + 0.18;
-                const targetRotY = mouseX * 0.32 - 0.28 + Math.sin(t * 0.5) * 0.06;
-                laptopGroup.rotation.x += (targetRotX - laptopGroup.rotation.x) * 0.06;
-                laptopGroup.rotation.y += (targetRotY - laptopGroup.rotation.y) * 0.06;
-
-                // Orbit rings rotation
-                ring1.rotation.z += 0.008;
-                ring2.rotation.z -= 0.006;
-
-                // Screen emissive pulse
-                screenMat.emissiveIntensity = 0.8 + Math.sin(t * 3.2) * 0.25;
-
-                // Particles rotation
-                particles.rotation.y += 0.002;
-                particles.rotation.x = Math.sin(t * 0.2) * 0.05;
-
-                renderer.render(scene, camera);
-            }
-            animate();
-
-            // Resize listener
-            window.addEventListener('resize', () => {
-                const w = canvas.clientWidth;
-                const h = canvas.clientHeight;
-                if (w && h) {
-                    camera.aspect = w / h;
-                    camera.updateProjectionMatrix();
-                    renderer.setSize(w, h, false);
-                }
-            });
-        } catch (err) {
-            console.warn('Three.js 3D Canvas error:', err);
-            if (fallback) fallback.style.display = 'block';
-        }
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initHero3DScene);
-    } else {
-        setTimeout(initHero3DScene, 100);
-    }
-
     // Khởi chạy ban đầu: Lấy server-info
     fetchServerInfo();
 })();
@@ -2338,28 +2194,41 @@
 
         let currentPalette = colorPalettes.viewMenu;
         let isPaused = false;
+        let animFrameId = null;
 
         window.setNetworkTheme = function(viewId) {
             if (colorPalettes[viewId]) {
                 currentPalette = colorPalettes[viewId];
             }
         };
-
-        window.setPetalsTheme = window.setNetworkTheme; // Backward compatibility
+        window.setPetalsTheme = window.setNetworkTheme;
 
         window.pauseNetworkAnimation = function(paused) {
             isPaused = paused;
+            if (paused) {
+                if (animFrameId) {
+                    cancelAnimationFrame(animFrameId);
+                    animFrameId = null;
+                }
+                ctx.clearRect(0, 0, width, height);
+                canvas.style.display = 'none';
+            } else {
+                canvas.style.display = 'block';
+                if (!animFrameId) {
+                    animateNetwork();
+                }
+            }
         };
-        window.pausePetalsAnimation = window.pauseNetworkAnimation; // Backward compatibility
+        window.pausePetalsAnimation = window.pauseNetworkAnimation;
 
-        // Khởi tạo các node mạng lưới nhẹ nhàng, hiệu năng cao
-        const NODE_COUNT = window.innerWidth < 768 ? 24 : 45;
+        const NODE_COUNT = window.innerWidth < 768 ? 20 : 40;
         const nodes = [];
 
         let mouseX = -1000;
         let mouseY = -1000;
 
         window.addEventListener('mousemove', (e) => {
+            if (isPaused) return;
             mouseX = e.clientX;
             mouseY = e.clientY;
         });
@@ -2373,23 +2242,26 @@
             nodes.push({
                 x: Math.random() * width,
                 y: Math.random() * height,
-                vx: (Math.random() - 0.5) * 0.75,
-                vy: (Math.random() - 0.5) * 0.75,
-                radius: 1.5 + Math.random() * 2.2,
-                baseAlpha: 0.35 + Math.random() * 0.4
+                vx: (Math.random() - 0.5) * 0.7,
+                vy: (Math.random() - 0.5) * 0.7,
+                radius: 1.5 + Math.random() * 2.0,
+                baseAlpha: 0.35 + Math.random() * 0.35
             });
         }
 
-        const MAX_DIST = 125;
-        const MOUSE_RADIUS = 140;
+        const MAX_DIST = 120;
+        const MOUSE_RADIUS = 130;
 
         function animateNetwork() {
-            requestAnimationFrame(animateNetwork);
-            if (isPaused) return;
+            if (isPaused) {
+                animFrameId = null;
+                return;
+            }
+            animFrameId = requestAnimationFrame(animateNetwork);
 
             ctx.clearRect(0, 0, width, height);
 
-            // Cập nhật vị trí & tương tác chuột
+            // Cập nhật vị trí
             for (let i = 0; i < nodes.length; i++) {
                 const n = nodes[i];
                 n.x += n.vx;
@@ -2398,35 +2270,35 @@
                 if (n.x < 0 || n.x > width) n.vx *= -1;
                 if (n.y < 0 || n.y > height) n.vy *= -1;
 
-                // Tương tác nhẹ nhàng với chuột
-                const dxm = mouseX - n.x;
-                const dym = mouseY - n.y;
-                const distM = Math.hypot(dxm, dym);
-                if (distM < MOUSE_RADIUS && distM > 0) {
-                    const force = (1 - distM / MOUSE_RADIUS) * 0.04;
-                    n.vx += (dxm / distM) * force;
-                    n.vy += (dym / distM) * force;
+                if (mouseX > 0 && mouseY > 0) {
+                    const dxm = mouseX - n.x;
+                    const dym = mouseY - n.y;
+                    const distM = Math.hypot(dxm, dym);
+                    if (distM < MOUSE_RADIUS && distM > 0) {
+                        const force = (1 - distM / MOUSE_RADIUS) * 0.035;
+                        n.vx += (dxm / distM) * force;
+                        n.vy += (dym / distM) * force;
+                    }
                 }
 
-                // Giới hạn vận tốc
                 const speed = Math.hypot(n.vx, n.vy);
-                if (speed > 1.2) {
-                    n.vx = (n.vx / speed) * 1.2;
-                    n.vy = (n.vy / speed) * 1.2;
+                if (speed > 1.1) {
+                    n.vx = (n.vx / speed) * 1.1;
+                    n.vy = (n.vy / speed) * 1.1;
                 }
             }
 
-            // Vẽ các đường nối giữa các node gần nhau
+            // Vẽ các đường nối
             for (let i = 0; i < nodes.length; i++) {
                 const a = nodes[i];
                 for (let j = i + 1; j < nodes.length; j++) {
                     const b = nodes[j];
                     const dist = Math.hypot(a.x - b.x, a.y - b.y);
                     if (dist < MAX_DIST) {
-                        const alpha = (1 - dist / MAX_DIST) * 0.35;
+                        const alpha = (1 - dist / MAX_DIST) * 0.32;
                         ctx.beginPath();
                         ctx.strokeStyle = currentPalette.link + alpha + ')';
-                        ctx.lineWidth = 0.8;
+                        ctx.lineWidth = 0.75;
                         ctx.moveTo(a.x, a.y);
                         ctx.lineTo(b.x, b.y);
                         ctx.stroke();
@@ -2434,7 +2306,7 @@
                 }
             }
 
-            // Vẽ các hạt node
+            // Vẽ các node
             for (let i = 0; i < nodes.length; i++) {
                 const n = nodes[i];
                 ctx.beginPath();
@@ -2442,15 +2314,6 @@
                 ctx.fillStyle = currentPalette.node;
                 ctx.globalAlpha = n.baseAlpha;
                 ctx.fill();
-
-                // Hào quang nhẹ cho hạt lớn
-                if (n.radius > 2.5) {
-                    ctx.beginPath();
-                    ctx.arc(n.x, n.y, n.radius * 2, 0, Math.PI * 2);
-                    ctx.fillStyle = currentPalette.node;
-                    ctx.globalAlpha = 0.12;
-                    ctx.fill();
-                }
             }
             ctx.globalAlpha = 1;
         }
