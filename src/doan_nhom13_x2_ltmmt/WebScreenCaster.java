@@ -460,8 +460,10 @@ public class WebScreenCaster implements Runnable {
                         encBuf.put(encrypted);
                         frameSender.send(encBuf.array());
                     } catch (Exception ex) {
-                        // Fallback gửi thường nếu lỗi mã hóa
-                        frameSender.send(rawPayload);
+                        // BẢO MẬT FAIL-CLOSED: Tuyệt đối không gửi bản rõ khi mã hóa E2EE gặp lỗi
+                        if (logger != null) {
+                            logger.appendLog("WebScreenCaster: Lỗi mã hóa E2EE (Bỏ qua khung hình): " + ex.getMessage());
+                        }
                     }
                 } else {
                     frameSender.send(rawPayload);

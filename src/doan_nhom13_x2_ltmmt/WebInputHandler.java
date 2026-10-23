@@ -361,12 +361,28 @@ public class WebInputHandler {
             }
         } catch (Exception ignored) {}
 
-        String safeName = new File(rawName).getName();
+        // Giới hạn dung lượng tải lên tối đa (500MB) chống tràn đĩa DoS (CWE-400)
+        long MAX_FILE_SIZE = 500L * 1024 * 1024;
+        if (size > MAX_FILE_SIZE) {
+            String err = "{\"type\":\"file_upload_error\",\"fileId\":\"" + escapeJson(fileId) + "\",\"message\":\"Từ chối: Tệp vượt quá dung lượng tối đa (500MB)!\"}";
+            sendText(err);
+            return;
+        }
+
+        // Làm sạch tên tệp và chống Path Traversal (CWE-22)
+        String safeName = new File(rawName).getName().replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (safeName.trim().isEmpty() || "..".equals(safeName)) {
+            safeName = "received_file_" + System.currentTimeMillis();
+        }
+
         try {
             if (!RECEIVED_DIR.exists()) {
                 RECEIVED_DIR.mkdirs();
             }
-            File targetFile = new File(RECEIVED_DIR, safeName);
+            File targetFile = new File(RECEIVED_DIR, safeName).getCanonicalFile();
+            if (!targetFile.toPath().startsWith(RECEIVED_DIR.getCanonicalFile().toPath())) {
+                throw new SecurityException("Phát hiện hành vi Path Traversal bất hợp pháp!");
+            }
             FileOutputStream fos = new FileOutputStream(targetFile);
 
             FileUploadContext ctx = new FileUploadContext();
@@ -542,8 +558,19 @@ public class WebInputHandler {
     private void handleFileDownload(Map<String, String> data) {
         String rawName = data.get("name");
         if (rawName == null) return;
-        String safeName = new File(rawName).getName();
-        File f = new File(RECEIVED_DIR, safeName);
+        String safeName = new File(rawName).getName().replaceAll("[\\\\/:*?\"<>|]", "_");
+        File f;
+        try {
+            f = new File(RECEIVED_DIR, safeName).getCanonicalFile();
+            if (!f.toPath().startsWith(RECEIVED_DIR.getCanonicalFile().toPath())) {
+                sendText("{\"type\":\"file_download_error\",\"name\":\"" + escapeJson(safeName) + "\",\"message\":\"Từ chối: Truy cập ngoài thư mục tệp tin!\"}");
+                return;
+            }
+        } catch (Exception ex) {
+            sendText("{\"type\":\"file_download_error\",\"name\":\"" + escapeJson(safeName) + "\",\"message\":\"Lỗi xác thực đường dẫn tệp tin!\"}");
+            return;
+        }
+
         if (!f.exists() || !f.isFile()) {
             sendText("{\"type\":\"file_download_error\",\"name\":\"" + escapeJson(safeName) + "\",\"message\":\"Không tìm thấy tệp trên máy chủ!\"}");
             return;

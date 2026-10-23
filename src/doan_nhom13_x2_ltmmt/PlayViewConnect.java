@@ -198,6 +198,11 @@ public class PlayViewConnect extends javax.swing.JFrame implements ServerLogger,
 
                     appendLog("Xác thực THÀNH CÔNG! Đang kết nối kênh lệnh...");
                     Socket cmdSock = commandServerSocket.accept();
+                    if (!cmdSock.getInetAddress().equals(screenSock.getInetAddress())) {
+                        appendLog("[CẢNH BÁO BẢO MẬT] Từ chối kênh lệnh từ IP lạ (" + cmdSock.getInetAddress().getHostAddress() + ")");
+                        cmdSock.close();
+                        continue;
+                    }
                     appendLog("Kênh lệnh đã kết nối thành công từ: " + cmdSock.getInetAddress().getHostAddress());
 
                     clientScreenSocket = screenSock;

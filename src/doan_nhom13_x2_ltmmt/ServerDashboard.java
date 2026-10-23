@@ -417,6 +417,11 @@ public class ServerDashboard extends JFrame implements ServerLogger {
 
                     appendLog("Xác thực THÀNH CÔNG! Đang kết nối kênh lệnh...");
                     Socket cmdSock = commandServerSocket.accept();
+                    if (!cmdSock.getInetAddress().equals(screenSock.getInetAddress())) {
+                        appendLog("[CẢNH BÁO BẢO MẬT] Từ chối kênh lệnh từ IP lạ (" + cmdSock.getInetAddress().getHostAddress() + ") không khớp với Client xác thực (" + screenSock.getInetAddress().getHostAddress() + ")");
+                        cmdSock.close();
+                        continue;
+                    }
                     appendLog("Kênh lệnh đã kết nối từ: " + cmdSock.getInetAddress().getHostAddress());
 
                     clientScreenSocket = screenSock;

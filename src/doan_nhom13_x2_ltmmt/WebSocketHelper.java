@@ -143,6 +143,9 @@ public class WebSocketHelper {
         byte[] mask = new byte[4];
         if (masked) {
             readFully(in, mask);
+        } else {
+            // RFC 6455 Mục 5.1: Bắt buộc Client phải Mask toàn bộ khung tin nhắn gửi lên Server
+            throw new IOException("RFC 6455 Protocol Error: Khung tin nhắn Client bắt buộc phải có Mask");
         }
 
         if (length > 20 * 1024 * 1024) { // Bảo vệ chống DoS tràn RAM (>20MB)

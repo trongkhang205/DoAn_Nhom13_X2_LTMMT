@@ -70,13 +70,22 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify([]));
     }
 
-    // Phục vụ giao diện Web (Chia sẻ thư mục web/ của dự án)
-    let filePath = path.join(__dirname, '..', 'web', url.pathname === '/' ? 'index.html' : url.pathname);
-    if (!fs.existsSync(filePath)) {
-        filePath = path.join(__dirname, '..', 'web', 'index.html');
+    // Phục vụ giao diện Web an toàn (Chống triệt để Path Traversal CWE-22)
+    const safeWebDir = path.resolve(__dirname, '..', 'web');
+    let requestPath = url.pathname === '/' ? '/index.html' : url.pathname;
+    let resolvedPath = path.resolve(safeWebDir, '.' + path.normalize(requestPath));
+
+    // Ranh giới an toàn: Chỉ phục vụ tệp nằm bên trong thư mục safeWebDir
+    if (!resolvedPath.startsWith(safeWebDir)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=UTF-8' });
+        return res.end('403 Forbidden: Truy cập ngoài vùng cho phép bị chặn vì lý do an ninh.');
     }
 
-    const ext = path.extname(filePath).toLowerCase();
+    if (!fs.existsSync(resolvedPath) || fs.statSync(resolvedPath).isDirectory()) {
+        resolvedPath = path.join(safeWebDir, 'index.html');
+    }
+
+    const ext = path.extname(resolvedPath).toLowerCase();
     const mimeTypes = {
         '.html': 'text/html; charset=UTF-8',
         '.css': 'text/css; charset=UTF-8',
@@ -84,15 +93,22 @@ const server = http.createServer((req, res) => {
         '.json': 'application/json',
         '.png': 'image/png',
         '.jpg': 'image/jpeg',
-        '.svg': 'image/svg+xml'
+        '.jpeg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.ico': 'image/x-icon',
+        '.woff2': 'font/woff2'
     };
 
-    fs.readFile(filePath, (err, content) => {
+    fs.readFile(resolvedPath, (err, content) => {
         if (err) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             return res.end('404 Not Found');
         }
-        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+        res.writeHead(200, {
+            'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'SAMEORIGIN'
+        });
         res.end(content);
     });
 });

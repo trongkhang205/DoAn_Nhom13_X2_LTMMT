@@ -467,8 +467,6 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             uri = "/index.html";
         }
 
-        // Resolve đường dẫn web/ theo vị trí thực tế của file class/JAR
-        // để tránh lỗi 404 khi chạy từ thư mục khác
         Path webDir = resolveWebDir();
         String relativePath = uri.startsWith("/") ? uri.substring(1) : uri;
         int queryIdx = relativePath.indexOf('?');
@@ -476,22 +474,39 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             relativePath = relativePath.substring(0, queryIdx);
         }
 
-        Path targetFile = webDir.resolve(relativePath).normalize();
+        try {
+            Path realWebDir = webDir.toRealPath();
+            Path targetFile = realWebDir.resolve(relativePath).normalize();
 
-        if (Files.exists(targetFile) && !Files.isDirectory(targetFile)) {
-            byte[] fileBytes = Files.readAllBytes(targetFile);
-            String contentType = getContentType(targetFile.toString());
+            // Chống duyệt thư mục (Path Traversal CWE-22)
+            if (!targetFile.startsWith(realWebDir)) {
+                String forbidden = "HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 13\r\n\r\n403 Forbidden";
+                out.write(forbidden.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                return;
+            }
 
-            String header = "HTTP/1.1 200 OK\r\n"
-                    + "Content-Type: " + contentType + "\r\n"
-                    + "Content-Length: " + fileBytes.length + "\r\n"
-                    + "Cache-Control: no-cache\r\n"
-                    + "Connection: close\r\n\r\n";
+            if (Files.exists(targetFile) && !Files.isDirectory(targetFile)) {
+                byte[] fileBytes = Files.readAllBytes(targetFile);
+                String contentType = getContentType(targetFile.toString());
 
-            out.write(header.getBytes(StandardCharsets.UTF_8));
-            out.write(fileBytes);
-            out.flush();
-        } else {
+                String header = "HTTP/1.1 200 OK\r\n"
+                        + "Content-Type: " + contentType + "\r\n"
+                        + "Content-Length: " + fileBytes.length + "\r\n"
+                        + "X-Content-Type-Options: nosniff\r\n"
+                        + "X-Frame-Options: SAMEORIGIN\r\n"
+                        + "Cache-Control: no-cache\r\n"
+                        + "Connection: close\r\n\r\n";
+
+                out.write(header.getBytes(StandardCharsets.UTF_8));
+                out.write(fileBytes);
+                out.flush();
+            } else {
+                String notFound = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
+                out.write(notFound.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
+        } catch (Exception e) {
             String notFound = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
             out.write(notFound.getBytes(StandardCharsets.UTF_8));
             out.flush();
@@ -665,7 +680,15 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                         }
 
                         String clientPass = data.get("password");
-                        if (password != null && password.equalsIgnoreCase(clientPass != null ? clientPass.trim() : "")) {
+                        String normClient = clientPass != null ? clientPass.trim().toLowerCase() : "";
+                        String normExpected = password != null ? password.trim().toLowerCase() : "";
+                        boolean passMatch = false;
+                        if (!normExpected.isEmpty() && !normClient.isEmpty()) {
+                            passMatch = java.security.MessageDigest.isEqual(
+                                    normExpected.getBytes(StandardCharsets.UTF_8),
+                                    normClient.getBytes(StandardCharsets.UTF_8));
+                        }
+                        if (passMatch) {
                             // Xóa lịch sử sai mật khẩu
                             failedAttempts.remove(clientIp);
                             lockoutExpiry.remove(clientIp);

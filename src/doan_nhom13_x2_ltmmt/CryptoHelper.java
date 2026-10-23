@@ -23,6 +23,7 @@ public class CryptoHelper {
     private static final int ITERATIONS = 65536;
     private static final int KEY_LENGTH = 256;
     private static final byte[] FIXED_SALT = "DoAn_LTMMT_Nhom13_E2EE_Salt_2026".getBytes(StandardCharsets.UTF_8);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
      * Dẫn xuất khóa SecretKey 256-bit từ chuỗi mật khẩu
@@ -42,7 +43,7 @@ public class CryptoHelper {
     public static String encrypt(String plainText, SecretKey key) throws Exception {
         if (plainText == null) return null;
         byte[] iv = new byte[IV_LENGTH];
-        new SecureRandom().nextBytes(iv);
+        SECURE_RANDOM.nextBytes(iv);
 
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
@@ -82,7 +83,7 @@ public class CryptoHelper {
     public static byte[] encryptBinary(byte[] plainBytes, SecretKey key) throws Exception {
         if (plainBytes == null || key == null) return plainBytes;
         byte[] iv = new byte[IV_LENGTH];
-        new SecureRandom().nextBytes(iv);
+        SECURE_RANDOM.nextBytes(iv);
 
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
