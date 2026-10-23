@@ -1159,95 +1159,40 @@
             if (!isOpen) wrapper.classList.add('open');
         });
     }
-    // Nút tròn chữ "T" (Tool Orb) mở / đóng thanh công cụ & Hỗ trợ KÉO THẢ (Draggable) tự do
+    // Nút tròn chữ "T" (Tool Orb) mở / đóng thanh công cụ (Tối ưu phản hồi tức thì trên Touch & Click)
     const btnToolOrb = document.getElementById('btnToolOrb');
     const floatingToolbarContainer = document.getElementById('floatingToolbarContainer');
     if (btnToolOrb && floatingToolbarContainer) {
-        let isDraggingOrb = false;
-        let orbStartX = 0, orbStartY = 0;
-        let initialContainerX = 0, initialContainerY = 0;
-        let orbHasMoved = false;
+        let lastToggleTime = 0;
+        const toggleToolbar = (e) => {
+            if (e) {
+                e.stopPropagation();
+            }
+            const now = Date.now();
+            if (now - lastToggleTime < 220) return; // Chống double-toggle giữa touch & click
+            lastToggleTime = now;
 
-        const onOrbStart = (clientX, clientY) => {
-            isDraggingOrb = true;
-            orbHasMoved = false;
-            orbStartX = clientX;
-            orbStartY = clientY;
-            const rect = floatingToolbarContainer.getBoundingClientRect();
-            initialContainerX = rect.left;
-            initialContainerY = rect.top;
+            floatingToolbarContainer.classList.toggle('expanded');
         };
 
-        const onOrbMove = (clientX, clientY) => {
-            if (!isDraggingOrb) return;
-            const dx = clientX - orbStartX;
-            const dy = clientY - orbStartY;
-            if (Math.hypot(dx, dy) > 6) {
-                orbHasMoved = true;
-                floatingToolbarContainer.style.left = Math.max(10, Math.min(window.innerWidth - 60, initialContainerX + dx)) + 'px';
-                floatingToolbarContainer.style.top = Math.max(10, Math.min(window.innerHeight - 60, initialContainerY + dy)) + 'px';
-                floatingToolbarContainer.style.right = 'auto';
-                floatingToolbarContainer.style.transform = 'none';
-            }
-        };
-
-        const onOrbEnd = () => {
-            if (!isDraggingOrb) return;
-            isDraggingOrb = false;
-            if (!orbHasMoved) {
-                // Nhấp nhẹ (tap/click): Đóng hoặc mở thanh công cụ
-                floatingToolbarContainer.classList.toggle('expanded');
-            } else {
-                // Tự động hít (dock) sang mép trái hoặc phải màn hình
-                const rect = floatingToolbarContainer.getBoundingClientRect();
-                const screenW = window.innerWidth;
-                if (rect.left + rect.width / 2 < screenW / 2) {
-                    floatingToolbarContainer.style.left = '16px';
-                    floatingToolbarContainer.style.right = 'auto';
-                    floatingToolbarContainer.style.alignItems = 'flex-start';
-                } else {
-                    floatingToolbarContainer.style.left = 'auto';
-                    floatingToolbarContainer.style.right = '16px';
-                    floatingToolbarContainer.style.alignItems = 'flex-end';
-                }
-            }
-        };
-
-        btnToolOrb.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
-            onOrbStart(e.clientX, e.clientY);
-            const onMouseMove = (me) => onOrbMove(me.clientX, me.clientY);
-            const onMouseUp = () => {
-                onOrbEnd();
-                window.removeEventListener('mousemove', onMouseMove);
-                window.removeEventListener('mouseup', onMouseUp);
-            };
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp);
-        });
-
-        btnToolOrb.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 1) {
-                onOrbStart(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }, { passive: true });
-
-        btnToolOrb.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 1) {
-                onOrbMove(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }, { passive: true });
-
-        btnToolOrb.addEventListener('touchend', () => {
-            onOrbEnd();
+        btnToolOrb.addEventListener('click', toggleToolbar);
+        btnToolOrb.addEventListener('touchend', (e) => {
+            e.preventDefault(); // Ngăn click giả lập 300ms sau của mobile browser
+            toggleToolbar(e);
         });
 
         // Click bên ngoài thanh công cụ để tự động thu gọn lại thành nút tròn T
         document.addEventListener('click', (e) => {
-            if (!floatingToolbarContainer.contains(e.target)) {
+            if (floatingToolbarContainer.classList.contains('expanded') && !floatingToolbarContainer.contains(e.target)) {
                 floatingToolbarContainer.classList.remove('expanded');
             }
         });
+
+        document.addEventListener('touchend', (e) => {
+            if (floatingToolbarContainer.classList.contains('expanded') && !floatingToolbarContainer.contains(e.target)) {
+                floatingToolbarContainer.classList.remove('expanded');
+            }
+        }, { passive: true });
     }
 
     setupDropdown(btnQualityDropdown, menuQuality);

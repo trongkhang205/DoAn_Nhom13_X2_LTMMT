@@ -2072,12 +2072,25 @@ body {
 
 /* ================= MOBILE TOUCH & RESPONSIVE ================= */
 @media (max-width: 768px) {
+    .floating-toolbar-container {
+        top: 10px;
+        right: 10px;
+    }
+
     .floating-toolbar {
-        top: auto;
-        bottom: 10px;
-        transform: translateX(-50%);
+        top: 0;
+        right: 0;
+        bottom: auto;
+        transform: translateY(-8px) scale(0.95);
         max-width: 95vw;
         border-radius: 16px;
+    }
+
+    .floating-toolbar-container.expanded .floating-toolbar {
+        transform: translateY(0) scale(1) !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        pointer-events: auto !important;
     }
 
     .toolbar-content {
