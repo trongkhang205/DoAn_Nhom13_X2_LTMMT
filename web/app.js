@@ -2347,7 +2347,8 @@
         if (!audioCtx) {
             try {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                audioCtx = new AudioContextClass({ sampleRate: 44100 });
+                // Tự động sử dụng tần số lấy mẫu phần cứng chuẩn của máy tính (48000Hz / 44100Hz)
+                audioCtx = new AudioContextClass();
                 audioGainNode = audioCtx.createGain();
                 audioGainNode.gain.value = 1.0;
                 audioGainNode.connect(audioCtx.destination);
@@ -2364,14 +2365,17 @@
     const unlockAudioGesture = () => {
         initAudioContext();
     };
-    ['click', 'touchstart', 'touchend', 'pointerdown'].forEach(evt => {
+    ['click', 'touchstart', 'touchend', 'pointerdown', 'keydown'].forEach(evt => {
         document.addEventListener(evt, unlockAudioGesture, { passive: true });
     });
 
     function playAudioPcmChunk(pcmDataView, sampleRate) {
         if (!isAudioEnabled) return;
         initAudioContext();
-        if (!audioCtx || audioCtx.state !== 'running') return;
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
 
         const numSamples = Math.floor(pcmDataView.byteLength / 2);
         if (numSamples <= 0) return;
@@ -2381,7 +2385,8 @@
             floatSamples[i] = pcmDataView.getInt16(i * 2, true) / 32768.0;
         }
 
-        const audioBuffer = audioCtx.createBuffer(1, numSamples, sampleRate || 44100);
+        const bufferRate = sampleRate || audioCtx.sampleRate || 48000;
+        const audioBuffer = audioCtx.createBuffer(1, numSamples, bufferRate);
         audioBuffer.copyToChannel(floatSamples, 0);
 
         const source = audioCtx.createBufferSource();
@@ -2390,7 +2395,7 @@
 
         const now = audioCtx.currentTime;
         if (nextAudioPlayTime < now) {
-            nextAudioPlayTime = now;
+            nextAudioPlayTime = now + 0.02; // Đệm nhẹ 20ms chống giật vấp tiếng
         }
         source.start(nextAudioPlayTime);
         nextAudioPlayTime += audioBuffer.duration;
@@ -2412,9 +2417,12 @@
 
             if (isAudioEnabled) {
                 initAudioContext();
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().catch(() => {});
+                }
             }
             sendJson({ type: 'audio_toggle', enabled: isAudioEnabled });
-            showToast(isAudioEnabled ? 'Đã bật âm thanh máy từ xa' : 'Đã tắt tiếng (Mute) âm thanh', 'info');
+            showToast(isAudioEnabled ? 'Đã BẬT âm thanh máy chủ (WASAPI Loopback)' : 'Đã TẮT tiếng (Mute) âm thanh', 'info');
         });
     }
 

@@ -118,6 +118,11 @@ public class WebAudioStreamer implements Runnable {
 
     private boolean runWasapiLoopback(File exeFile) {
         try {
+            // Dọn dẹp triệt để mọi tiến trình AudioLoopback cũ đang chạy ngầm để không khóa thiết bị âm thanh
+            try {
+                new ProcessBuilder("taskkill", "/F", "/IM", "AudioLoopback.exe").start().waitFor();
+            } catch (Exception ignored) {}
+
             ProcessBuilder pb = new ProcessBuilder(exeFile.getAbsolutePath());
             pb.redirectErrorStream(false);
             loopbackProcess = pb.start();
@@ -149,11 +154,6 @@ public class WebAudioStreamer implements Runnable {
             int consecutiveErrors = 0;
 
             while (running && loopbackProcess.isAlive() && !Thread.currentThread().isInterrupted()) {
-                if (!enabled) {
-                    Thread.sleep(50);
-                    continue;
-                }
-
                 int totalRead = 0;
                 while (totalRead < pcmBuffer.length && running) {
                     int r = pcmStream.read(pcmBuffer, totalRead, pcmBuffer.length - totalRead);
@@ -163,6 +163,12 @@ public class WebAudioStreamer implements Runnable {
 
                 if (totalRead <= 0) {
                     Thread.sleep(5);
+                    continue;
+                }
+
+                // Khi đang Tắt âm thanh (Mute): Vẫn xả sạch buffer từ pipe để AudioLoopback.exe
+                // luôn chạy mượt mà, không bao giờ bị nghẽn ống pipe hay tràn bộ nhớ Windows
+                if (!enabled) {
                     continue;
                 }
 
