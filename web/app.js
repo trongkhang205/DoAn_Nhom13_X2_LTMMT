@@ -980,7 +980,7 @@
         pendingMeta = null;
 
         if (window.createImageBitmap) {
-            createImageBitmap(blob).then((bitmap) => {
+            createImageBitmap(blob, { premultiplyAlpha: 'none' }).then((bitmap) => {
                 if (meta.isKeyframe || (meta.targetX === 0 && meta.targetY === 0 && meta.targetW === remoteCanvas.width && meta.targetH === remoteCanvas.height)) {
                     ctx.drawImage(bitmap, 0, 0, remoteCanvas.width, remoteCanvas.height);
                 } else {
@@ -1362,9 +1362,21 @@
     }
     window.addEventListener('resize', updateCanvasRect);
     window.addEventListener('scroll', updateCanvasRect);
+    document.addEventListener('fullscreenchange', () => {
+        updateCanvasRect();
+        setTimeout(updateCanvasRect, 50);
+        setTimeout(updateCanvasRect, 200);
+        setTimeout(updateCanvasRect, 500);
+    });
+    document.addEventListener('webkitfullscreenchange', () => {
+        updateCanvasRect();
+        setTimeout(updateCanvasRect, 50);
+        setTimeout(updateCanvasRect, 200);
+        setTimeout(updateCanvasRect, 500);
+    });
 
     function getCanvasCoordinates(e, forceRefresh = false) {
-        if (forceRefresh || !cachedCanvasRect || cachedCanvasRect.width === 0) {
+        if (forceRefresh || document.fullscreenElement || !cachedCanvasRect || cachedCanvasRect.width === 0) {
             cachedCanvasRect = remoteCanvas.getBoundingClientRect();
         }
         const rect = cachedCanvasRect;
@@ -1383,24 +1395,45 @@
         const scaleX = targetW / rect.width;
         const scaleY = targetH / rect.height;
 
-        const x = Math.max(0, Math.min(targetW, Math.round(clientX * scaleX)));
-        const y = Math.max(0, Math.min(targetH, Math.round(clientY * scaleY)));
+        let x = Math.max(0, Math.min(targetW - 1, Math.round(clientX * scaleX)));
+        let y = Math.max(0, Math.min(targetH - 1, Math.round(clientY * scaleY)));
+
+        // Đặc trị thanh Tab trình duyệt ở sát đỉnh màn hình:
+        // Khi người dùng click ở dải Y < 5px sát mép, đưa Y xuống 6px để đảm bảo
+        // 100% click trúng thân Tab trình duyệt thay vì mép phân vùng resize cửa sổ Windows
+        if (y < 5 && clientY >= 0) {
+            y = 6;
+        }
 
         return { x, y };
     }
 
-
     let lastSentX = -1;
     let lastSentY = -1;
+    let isMouseDown = false;
+    let mouseDownCoords = null;
+    let isDragging = false;
+    const DRAG_THRESHOLD = 5; // Ngưỡng phân biệt Click dứt khoát vs Kéo thả (5px)
 
     remoteCanvas.addEventListener('mousemove', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
-        const now = performance.now();
-        if (now - lastMouseMoveTime < 35) return;
-
         const coords = getCanvasCoordinates(e);
-        // Bỏ qua nếu di chuyển dưới 2px và chưa qua 100ms (giảm 60% nghẽn mạng)
-        if (Math.abs(coords.x - lastSentX) < 2 && Math.abs(coords.y - lastSentY) < 2 && (now - lastMouseMoveTime < 100)) {
+
+        // Chống Tab Drag vô tình: Nếu đang nhấn chuột nhưng chưa vượt ngưỡng 5px,
+        // chặn không gửi move để Windows/Chrome không kích hoạt kéo tách tab!
+        if (isMouseDown && !isDragging && mouseDownCoords) {
+            const dist = Math.hypot(coords.x - mouseDownCoords.x, coords.y - mouseDownCoords.y);
+            if (dist < DRAG_THRESHOLD) {
+                return;
+            }
+            isDragging = true;
+        }
+
+        const now = performance.now();
+        if (now - lastMouseMoveTime < 25) return;
+
+        // Bỏ qua nếu di chuyển dưới 2px khi không kéo thả (giảm 60% nghẽn mạng)
+        if (!isDragging && Math.abs(coords.x - lastSentX) < 2 && Math.abs(coords.y - lastSentY) < 2 && (now - lastMouseMoveTime < 80)) {
             return;
         }
 
@@ -1417,6 +1450,9 @@
         cachedCanvasRect = remoteCanvas.getBoundingClientRect(); // Luôn lấy tọa độ chuẩn xác khi click
 
         const coords = getCanvasCoordinates(e, true);
+        isMouseDown = true;
+        mouseDownCoords = { x: coords.x, y: coords.y, button: e.button };
+        isDragging = false;
         lastSentX = coords.x;
         lastSentY = coords.y;
         sendJson({ type: 'mouse', action: 'down', button: e.button, x: coords.x, y: coords.y });
@@ -1426,7 +1462,21 @@
         if (!isControlEnabled || !isAuthenticated) return;
         e.preventDefault();
         const coords = getCanvasCoordinates(e, true);
-        sendJson({ type: 'mouse', action: 'up', button: e.button, x: coords.x, y: coords.y });
+
+        let sendX = coords.x;
+        let sendY = coords.y;
+
+        // Nếu người dùng chỉ click tại chỗ (không kéo thả), cố định tọa độ đúng điểm ban đầu
+        if (mouseDownCoords && !isDragging) {
+            sendX = mouseDownCoords.x;
+            sendY = mouseDownCoords.y;
+        }
+
+        isMouseDown = false;
+        isDragging = false;
+        mouseDownCoords = null;
+
+        sendJson({ type: 'mouse', action: 'up', button: e.button, x: sendX, y: sendY });
     });
 
     remoteCanvas.addEventListener('dblclick', (e) => {

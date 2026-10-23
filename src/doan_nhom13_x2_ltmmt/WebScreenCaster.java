@@ -27,8 +27,8 @@ public class WebScreenCaster implements Runnable {
     private final OutputStream out;
     private final ServerLogger logger;
     private volatile boolean running = true;
-    private volatile float quality = 0.60f;
-    private volatile int targetFps = 30;
+    private volatile float quality = 0.65f;
+    private volatile int targetFps = 35;
 
     private Robot robot;
     private Rectangle screenRect;
@@ -47,14 +47,15 @@ public class WebScreenCaster implements Runnable {
     private final Object screenLock = new Object();
 
     // Quản lý Độ phân giải và Tỷ lệ Khung hình (Dynamic Resolution Scaling)
-    // Mặc định nén về chuẩn 720p HD (Tối đa chiều rộng 1280px) để giảm 75% băng thông,
-    // nén JPEG nhanh hơn gấp 3 lần, loại bỏ hoàn toàn độ trễ input lag và nghẽn mạng 2 máy tính.
+    // Chỉ nén tỷ lệ với màn hình siêu lớn (> 1440px như 1080p, 2K, 4K)
+    // Với màn hình 1366x768 hoặc nhỏ hơn: Giữ 100% Native 1:1 triệt tiêu nội suy CPU,
+    // đảm bảo tọa độ chuột chính xác 100% pixel-perfect và độ mượt tối đa.
     private volatile boolean hdScaleEnabled = true;
     private volatile double streamScale = 1.0;
     private volatile double streamScaleX = 1.0;
     private volatile double streamScaleY = 1.0;
-    private volatile int streamWidth = 1280;
-    private volatile int streamHeight = 720;
+    private volatile int streamWidth = 1366;
+    private volatile int streamHeight = 768;
     private volatile boolean fileTransferring = false;
 
     // Buffer pixel để so sánh vi sai (Delta Diffing)
@@ -167,7 +168,9 @@ public class WebScreenCaster implements Runnable {
             int H = screenRect != null ? screenRect.height : 768;
             int sW = W;
             int sH = H;
-            if (hdScaleEnabled && W > 1280) {
+            // Chỉ nén nếu độ phân giải vượt quá 1440px (1080p, 2K, 4K)
+            // Với 1366x768: Giữ nguyên 100% tỷ lệ gốc 1:1 siêu mượt, loại bỏ hoàn toàn tải CPU nội suy
+            if (hdScaleEnabled && W > 1440) {
                 sW = 1280;
                 sH = (int) Math.round((double) H * 1280.0 / W);
                 if ((sW % 2) != 0) sW--;
@@ -291,7 +294,7 @@ public class WebScreenCaster implements Runnable {
         int streamH = H_orig;
         double scale = 1.0;
 
-        if (hdScaleEnabled && W_orig > 1280) {
+        if (hdScaleEnabled && W_orig > 1440) {
             streamW = 1280;
             streamH = (int) Math.round((double) H_orig * 1280.0 / W_orig);
             if ((streamW % 2) != 0) streamW--;
@@ -302,6 +305,8 @@ public class WebScreenCaster implements Runnable {
         this.streamScale = scale;
         this.streamWidth = streamW;
         this.streamHeight = streamH;
+        this.streamScaleX = (double) streamW / W_orig;
+        this.streamScaleY = (double) streamH / H_orig;
 
         final int blockSize = 32; // Kích thước khối kiểm tra (32x32 pixels)
         int blocksX = (streamW + blockSize - 1) / blockSize;

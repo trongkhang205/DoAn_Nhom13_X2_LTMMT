@@ -347,16 +347,29 @@ public class WebInputHandler {
                     int mask = getButtonMask(btn);
                     if (mask != 0) {
                         long elapsed = System.currentTimeMillis() - lastMouseDownTime;
-                        if (elapsed < 35) {
+                        if (elapsed < 20) {
                             try {
-                                Thread.sleep(35 - elapsed);
+                                Thread.sleep(20 - elapsed);
                             } catch (Exception ignored) {}
                         }
+                        // Tuyệt đối không gọi mouseMove trước mouseRelease để tránh tạo cử chỉ kéo thả (Tab Drag)
+                        robot.mouseRelease(mask);
+                    }
+                }
+                break;
+
+            case "click":
+                if (data.containsKey("button")) {
+                    int btn = Integer.parseInt(data.get("button"));
+                    int mask = getButtonMask(btn);
+                    if (mask != 0) {
                         if (data.containsKey("x") && data.containsKey("y")) {
                             double x = Double.parseDouble(data.get("x"));
                             double y = Double.parseDouble(data.get("y"));
                             moveMouseScaled(x, y);
                         }
+                        robot.mousePress(mask);
+                        try { Thread.sleep(25); } catch (Exception ignored) {}
                         robot.mouseRelease(mask);
                     }
                 }
@@ -373,11 +386,11 @@ public class WebInputHandler {
                             moveMouseScaled(x, y);
                         }
                         robot.mousePress(mask);
-                        try { Thread.sleep(35); } catch (Exception ignored) {}
+                        try { Thread.sleep(25); } catch (Exception ignored) {}
                         robot.mouseRelease(mask);
-                        try { Thread.sleep(60); } catch (Exception ignored) {}
+                        try { Thread.sleep(50); } catch (Exception ignored) {}
                         robot.mousePress(mask);
-                        try { Thread.sleep(35); } catch (Exception ignored) {}
+                        try { Thread.sleep(25); } catch (Exception ignored) {}
                         robot.mouseRelease(mask);
                     }
                 }
