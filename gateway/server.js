@@ -137,8 +137,10 @@ wss.on('connection', (ws, req) => {
                 if (host && host.clients) {
                     host.clients.forEach(client => {
                         if (client.readyState === WebSocket.OPEN) {
-                            // CHỐNG TRỄ 4G: Nếu client tải chậm và buffer > 128KB, bỏ qua khung hình cũ
-                            if (client.bufferedAmount > 128 * 1024) {
+                            // CHỐNG TRỄ & INPUT LAG (ZERO-DELAY REALTIME STREAMING):
+                            // Khi bộ đệm mạng vượt quá 64KB (khoảng 1 khung hình), lập tức bỏ qua khung hình này.
+                            // Tuyệt đối không để bộ đệm tích tụ hàng MB gây trễ/delay 1-2 giây cho người điều khiển.
+                            if (client.bufferedAmount > 64 * 1024) {
                                 return;
                             }
                             client.send(data, { binary: true });

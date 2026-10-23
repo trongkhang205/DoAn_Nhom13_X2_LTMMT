@@ -113,31 +113,72 @@ public class WebSocketHelper {
     }
 
     /**
-     * Đọc 1 Frame từ Client theo RFC 6455 (Client bắt buộc phải MASK dữ liệu)
+     * Đọc 1 Frame từ Client theo RFC 6455 (Client bắt buộc phải MASK dữ liệu).
+     * Hỗ trợ đầy đủ Fragmented Frames (FIN bit = 0 và các Continuation Frame kế tiếp),
+     * giúp các tin nhắn lớn (>64KB) do Chrome / Safari phân mảnh không bị mất hoặc hỏng.
      */
     public static Frame readFrame(InputStream in) throws IOException {
         int b1 = in.read();
         if (b1 == -1) return null;
+        boolean fin = (b1 & 0x80) != 0;
         int opcode = b1 & 0x0F;
 
+        byte[] payload = readPayload(in);
+
+        // Khung điều khiển (Close, Ping, Pong) hoặc khung hoàn chỉnh (fin == true)
+        if (fin || opcode == OPCODE_CLOSE || opcode == OPCODE_PING || opcode == OPCODE_PONG) {
+            return new Frame(opcode, payload);
+        }
+
+        // Tái lắp ráp các khung phân mảnh (Continuation frames: opcode 0) cho tới khi fin == true
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(payload.length * 2);
+        buffer.write(payload);
+
+        while (!fin) {
+            int nb1 = in.read();
+            if (nb1 == -1) return null;
+            fin = (nb1 & 0x80) != 0;
+            int nOpcode = nb1 & 0x0F;
+
+            // Xử lý khung điều khiển xen kẽ (Ping/Close) theo RFC 6455
+            if (nOpcode == OPCODE_PING || nOpcode == OPCODE_CLOSE) {
+                byte[] ctrlPayload = readPayload(in);
+                return new Frame(nOpcode, ctrlPayload);
+            }
+
+            byte[] nextPayload = readPayload(in);
+            buffer.write(nextPayload);
+            if (buffer.size() > 50 * 1024 * 1024) { // Bảo vệ chống DoS tràn RAM (>50MB)
+                throw new IOException("Fragmented message payload exceeded 50MB limit");
+            }
+        }
+
+        return new Frame(opcode, buffer.toByteArray());
+    }
+
+    private static byte[] readPayload(InputStream in) throws IOException {
         int b2 = in.read();
-        if (b2 == -1) return null;
+        if (b2 == -1) throw new EOFException("Connection closed while reading length");
         boolean masked = (b2 & 0x80) != 0;
         long length = b2 & 0x7F;
 
         if (length == 126) {
             int d1 = in.read();
             int d2 = in.read();
-            if (d1 == -1 || d2 == -1) return null;
+            if (d1 == -1 || d2 == -1) throw new EOFException("Connection closed while reading length16");
             length = ((d1 & 0xFF) << 8) | (d2 & 0xFF);
         } else if (length == 127) {
             long l = 0;
             for (int i = 0; i < 8; i++) {
                 int di = in.read();
-                if (di == -1) return null;
+                if (di == -1) throw new EOFException("Connection closed while reading length64");
                 l = (l << 8) | (di & 0xFF);
             }
             length = l;
+        }
+
+        if (length > 20 * 1024 * 1024) { // Bảo vệ chống DoS tràn RAM (>20MB)
+            throw new IOException("Frame size too large: " + length);
         }
 
         byte[] mask = new byte[4];
@@ -146,10 +187,6 @@ public class WebSocketHelper {
         } else {
             // RFC 6455 Mục 5.1: Bắt buộc Client phải Mask toàn bộ khung tin nhắn gửi lên Server
             throw new IOException("RFC 6455 Protocol Error: Khung tin nhắn Client bắt buộc phải có Mask");
-        }
-
-        if (length > 20 * 1024 * 1024) { // Bảo vệ chống DoS tràn RAM (>20MB)
-            throw new IOException("Frame size too large: " + length);
         }
 
         byte[] payload = new byte[(int) length];
@@ -161,7 +198,7 @@ public class WebSocketHelper {
             }
         }
 
-        return new Frame(opcode, payload);
+        return payload;
     }
 
     /**

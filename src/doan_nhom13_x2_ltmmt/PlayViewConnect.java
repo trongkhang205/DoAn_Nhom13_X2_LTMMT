@@ -21,6 +21,8 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.Random;
+import java.awt.Desktop;
+import java.io.File;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -69,6 +71,13 @@ public class PlayViewConnect extends javax.swing.JFrame implements ServerLogger,
             }
         });
         setLocationRelativeTo(null);
+
+        // Đảm bảo thư mục nhận file ở Downloads của máy chủ luôn sẵn sàng và KHÔNG bị ẩn
+        File receivedDir = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
+        if (!receivedDir.exists()) {
+            receivedDir.mkdirs();
+        }
+        WebInputHandler.ensureVisible(receivedDir);
 
         // Khởi tạo thông tin mặc định cho Server
         loadLocalIP();
@@ -165,6 +174,8 @@ public class PlayViewConnect extends javax.swing.JFrame implements ServerLogger,
         lblServerStatus.setText("● Đang lắng nghe: Port " + screenPort + " & " + cmdPort);
         lblServerStatus.setForeground(new Color(22, 163, 74));
         appendLog("Khởi động Server thành công trên Port ảnh: " + screenPort + ", Port lệnh: " + cmdPort);
+        File recDir = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
+        appendLog("📁 Thư mục lưu tệp nhận: " + recDir.getAbsolutePath());
 
         serverAcceptThread = new Thread(() -> {
             try {
@@ -527,6 +538,24 @@ public class PlayViewConnect extends javax.swing.JFrame implements ServerLogger,
         btnStopServer.addActionListener(evt -> btnStopServerActionPerformed(evt));
         panelServerButtons.add(btnStopServer);
 
+        btnOpenReceivedFiles = new javax.swing.JButton();
+        btnOpenReceivedFiles.setFont(new java.awt.Font("Segoe UI", java.awt.Font.BOLD, 13));
+        btnOpenReceivedFiles.setText("📁 Tệp Đã Nhận");
+        btnOpenReceivedFiles.setToolTipText("Mở thư mục Downloads/RemoteDesktop_Received lưu các file nhận từ Client");
+        btnOpenReceivedFiles.setPreferredSize(new java.awt.Dimension(150, 36));
+        btnOpenReceivedFiles.setBackground(new java.awt.Color(241, 245, 249));
+        btnOpenReceivedFiles.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+        btnOpenReceivedFiles.addActionListener(evt -> {
+            try {
+                File dir = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
+                if (!dir.exists()) dir.mkdirs();
+                Desktop.getDesktop().open(dir);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Không thể mở thư mục: " + ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        panelServerButtons.add(btnOpenReceivedFiles);
+
         gbc = new java.awt.GridBagConstraints();
         gbc.gridx = 0; gbc.gridy = 3;
         gbc.gridwidth = 3;
@@ -687,6 +716,7 @@ public class PlayViewConnect extends javax.swing.JFrame implements ServerLogger,
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnClientConnect;
     private javax.swing.JButton btnGenPass;
+    private javax.swing.JButton btnOpenReceivedFiles;
     private javax.swing.JButton btnStartServer;
     private javax.swing.JButton btnStopServer;
     private javax.swing.JLabel lblClientHost;

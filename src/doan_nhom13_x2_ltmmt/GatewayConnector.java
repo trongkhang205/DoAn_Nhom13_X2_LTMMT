@@ -36,6 +36,11 @@ public class GatewayConnector implements WebSocket.Listener {
 
     private Thread connectorThread;
     private final Object sendLock = new Object();
+    private Runnable onConnectionFailed;
+
+    public void setOnConnectionFailed(Runnable onConnectionFailed) {
+        this.onConnectionFailed = onConnectionFailed;
+    }
 
     public GatewayConnector(String gatewayUrl, String deviceId, java.util.function.Supplier<String> passwordSupplier, ServerLogger logger) {
         this.gatewayUrl = gatewayUrl != null ? gatewayUrl : "ws://127.0.0.1:3000";
@@ -203,7 +208,15 @@ public class GatewayConnector implements WebSocket.Listener {
                 this.connected = false;
                 stopStreaming();
                 if (logger != null && running) {
-                    logger.appendLog("GatewayConnector: Kênh Cloud Relay chưa sẵn sàng (" + e.getMessage() + "), sẽ thử lại sau 3s...");
+                    String reason = (e.getCause() != null && e.getCause().getMessage() != null) 
+                            ? e.getCause().getMessage() 
+                            : (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                    logger.appendLog("GatewayConnector: Kênh Cloud Relay chưa sẵn sàng (" + reason + "), sẽ thử lại sau 3s...");
+                }
+                if (onConnectionFailed != null && running) {
+                    try {
+                        onConnectionFailed.run();
+                    } catch (Exception ignored) {}
                 }
                 if (running) {
                     try {
@@ -260,6 +273,11 @@ public class GatewayConnector implements WebSocket.Listener {
     }
 
     private void handleGatewayMessage(String json) {
+        if (json.contains("\"file_upload_chunk\"") && inputHandler != null) {
+            inputHandler.handleMessage(json);
+            return;
+        }
+
         Map<String, String> data = WebInputHandler.parseSimpleJson(json);
         String type = data.get("type");
         if (type == null) return;

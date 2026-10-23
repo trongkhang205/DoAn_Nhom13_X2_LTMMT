@@ -58,12 +58,25 @@ public class RemoteViewerFrame extends JFrame {
         lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         statusPanel.add(lblStatus, BorderLayout.WEST);
 
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        buttonPanel.setOpaque(false);
+
+        JButton btnSendFile = new JButton("📁 Truyền tệp");
+        btnSendFile.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnSendFile.setForeground(new Color(30, 41, 59));
+        btnSendFile.setFocusPainted(false);
+        btnSendFile.setToolTipText("Chọn và gửi tệp tin từ máy này lên máy chủ từ xa");
+        btnSendFile.addActionListener(e -> chooseAndSendFile(btnSendFile));
+        buttonPanel.add(btnSendFile);
+
         JButton btnDisconnect = new JButton("Ngắt kết nối");
         btnDisconnect.setFont(new Font("Segoe UI", Font.BOLD, 12));
         btnDisconnect.setForeground(Color.BLACK);
         btnDisconnect.setFocusPainted(false);
         btnDisconnect.addActionListener(e -> dispose());
-        statusPanel.add(btnDisconnect, BorderLayout.EAST);
+        buttonPanel.add(btnDisconnect);
+
+        statusPanel.add(buttonPanel, BorderLayout.EAST);
 
         mainContainer.add(statusPanel, BorderLayout.SOUTH);
         setContentPane(mainContainer);
@@ -115,6 +128,19 @@ public class RemoteViewerFrame extends JFrame {
             @Override
             public void mouseEntered(MouseEvent e) {
                 viewerPanel.requestFocusInWindow();
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                viewerPanel.requestFocusInWindow();
+                if (e.getClickCount() == 2) {
+                    Point serverPoint = viewerPanel.mapToServerCoordinates(e.getX(), e.getY());
+                    if (serverPoint != null) {
+                        sendCommand("MOUSE_MOVE," + serverPoint.x + "," + serverPoint.y);
+                        int mask = getButtonMask(e.getButton());
+                        sendCommand("MOUSE_DBLCLICK," + mask);
+                    }
+                }
             }
 
             @Override
@@ -208,7 +234,9 @@ public class RemoteViewerFrame extends JFrame {
      */
     private void sendCommand(String cmd) {
         if (commandWriter != null) {
-            commandWriter.println(cmd);
+            synchronized (commandWriter) {
+                commandWriter.println(cmd);
+            }
         }
     }
 
@@ -304,5 +332,85 @@ public class RemoteViewerFrame extends JFrame {
 
             return new Point(mappedX, mappedY);
         }
+    }
+
+    /**
+     * Chọn và gửi tệp tin từ máy khách Desktop lên máy chủ từ xa qua commandWriter
+     */
+    private void chooseAndSendFile(JButton triggerBtn) {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Chọn tệp tin để gửi lên máy chủ từ xa");
+        chooser.setMultiSelectionEnabled(true);
+        int ret = chooser.showOpenDialog(this);
+        if (ret != JFileChooser.APPROVE_OPTION) return;
+
+        java.io.File[] selected = chooser.getSelectedFiles();
+        if ((selected == null || selected.length == 0) && chooser.getSelectedFile() != null) {
+            selected = new java.io.File[] { chooser.getSelectedFile() };
+        }
+        if (selected == null || selected.length == 0) return;
+        final java.io.File[] files = selected;
+
+        new Thread(() -> {
+            SwingUtilities.invokeLater(() -> triggerBtn.setEnabled(false));
+            int successCount = 0;
+            for (java.io.File file : files) {
+                if (!file.isFile()) continue;
+                String safeName = file.getName();
+                long totalSize = file.length();
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) {
+                    SwingUtilities.invokeLater(() -> lblStatus.setText("Đang gửi tệp: " + safeName + " (" + formatFileSize(totalSize) + ")..."));
+                    
+                    String b64Name = java.util.Base64.getEncoder().encodeToString(safeName.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    synchronized (commandWriter) {
+                        commandWriter.println("FILE_START," + b64Name + "," + totalSize);
+                        commandWriter.flush();
+                    }
+
+                    byte[] buffer = new byte[32 * 1024];
+                    int bytesRead;
+                    long sent = 0;
+                    while ((bytesRead = fis.read(buffer)) != -1) {
+                        byte[] chunk = buffer;
+                        if (bytesRead < buffer.length) {
+                            chunk = java.util.Arrays.copyOf(buffer, bytesRead);
+                        }
+                        String b64 = java.util.Base64.getEncoder().encodeToString(chunk);
+                        synchronized (commandWriter) {
+                            commandWriter.println("FILE_CHUNK," + b64);
+                            commandWriter.flush();
+                        }
+                        sent += bytesRead;
+                        final int percent = totalSize > 0 ? (int) Math.min(99, (sent * 100 / totalSize)) : 100;
+                        SwingUtilities.invokeLater(() -> lblStatus.setText("Đang gửi: " + safeName + " (" + percent + "%)"));
+                        Thread.sleep(5);
+                    }
+
+                    synchronized (commandWriter) {
+                        commandWriter.println("FILE_END");
+                        commandWriter.flush();
+                    }
+                    successCount++;
+                    SwingUtilities.invokeLater(() -> lblStatus.setText("✅ Đã gửi thành công tệp: " + safeName));
+                } catch (Exception ex) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Lỗi gửi tệp [" + safeName + "]: " + ex.getMessage(), "Lỗi truyền tệp", JOptionPane.ERROR_MESSAGE));
+                }
+            }
+
+            final int finalSuccess = successCount;
+            SwingUtilities.invokeLater(() -> {
+                triggerBtn.setEnabled(true);
+                JOptionPane.showMessageDialog(this, 
+                        "Đã hoàn tất truyền " + finalSuccess + " tệp tin lên máy chủ!\nTệp được lưu an toàn tại thư mục Downloads/RemoteDesktop_Received của máy chủ.", 
+                        "Truyền tệp thành công", JOptionPane.INFORMATION_MESSAGE);
+            });
+        }, "Desktop-FileSender-Thread").start();
+    }
+
+    private static String formatFileSize(long bytes) {
+        if (bytes <= 0) return "0 B";
+        final String[] units = new String[] { "B", "KB", "MB", "GB" };
+        int digitGroups = (int) (Math.log10(bytes) / Math.log10(1024));
+        return String.format(java.util.Locale.US, "%.1f %s", bytes / Math.pow(1024, digitGroups), units[digitGroups]);
     }
 }

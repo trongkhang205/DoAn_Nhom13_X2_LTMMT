@@ -248,7 +248,9 @@
                         badgeTunnelStatus.className = 'tunnel-status-badge tunnel-badge-pending';
                         badgeTunnelStatus.textContent = 'Đang Lấy URL...';
                     }
-                    if (dispTunnelUrl) dispTunnelUrl.textContent = 'Đang khởi tạo đường truyền Cloudflare... Vui lòng chờ 3s';
+                    if (dispTunnelUrl && !tunnelPollTimer) {
+                        dispTunnelUrl.textContent = 'Đang khởi tạo đường truyền Cloudflare... Vui lòng chờ 3s';
+                    }
                     if (btnOpenTunnelUrl) btnOpenTunnelUrl.style.display = 'none';
                 }
             } else {
@@ -259,6 +261,32 @@
                     badgeTunnelStatus.textContent = 'Chưa Kích Hoạt';
                 }
                 if (boxTunnelLink) boxTunnelLink.style.display = 'none';
+                if (tunnelPollTimer) {
+                    clearInterval(tunnelPollTimer);
+                    tunnelPollTimer = null;
+                }
+            }
+
+            // Tự động poll nếu tunnel đang bật mà chưa có URL (khi vừa tải trang hoặc vừa bật)
+            if (info.isTunnelActive && (!info.tunnelUrl || info.tunnelUrl.trim() === '')) {
+                if (!tunnelPollTimer) {
+                    let pollCount = 0;
+                    tunnelPollTimer = setInterval(async () => {
+                        pollCount++;
+                        if (dispTunnelUrl && (!cachedServerInfo || !cachedServerInfo.tunnelUrl)) {
+                            dispTunnelUrl.textContent = `Đang kết nối Cloudflare Edge... (${pollCount}s)`;
+                        }
+                        await fetchServerInfo();
+                        fetchServerLogs();
+                        if ((cachedServerInfo && cachedServerInfo.tunnelUrl) || pollCount >= 30) {
+                            clearInterval(tunnelPollTimer);
+                            tunnelPollTimer = null;
+                        }
+                    }, 1200);
+                }
+            } else if (tunnelPollTimer && info.tunnelUrl) {
+                clearInterval(tunnelPollTimer);
+                tunnelPollTimer = null;
             }
         }
 
@@ -574,6 +602,10 @@
 
     // Bắt đầu kết nối Client (Mạng LAN hoặc Xuyên Internet)
     btnClientStartConnect.addEventListener('click', () => {
+        // Tạm dừng ngay hiệu ứng chuyển động ngoài trang chủ để dồn 100% tài nguyên CPU/GPU cho kết nối
+        if (typeof window.pauseNetworkAnimation === 'function') {
+            window.pauseNetworkAnimation(true);
+        }
         initAudioContext();
         const password = clientTargetPass.value.trim();
 
@@ -581,6 +613,9 @@
             const devIdRaw = clientTargetDeviceId ? clientTargetDeviceId.value.trim().replace(/\s+/g, '') : '';
             if (!devIdRaw || !/^\d{9}$/.test(devIdRaw)) {
                 showClientError('Vui lòng nhập đúng 9 chữ số Mã Thiết Bị (Device ID) để kết nối qua Internet!');
+                if (typeof window.pauseNetworkAnimation === 'function') {
+                    window.pauseNetworkAnimation(false);
+                }
                 return;
             }
             connectViaInternetGateway(devIdRaw, password);
@@ -590,6 +625,9 @@
 
             if (!host) {
                 showClientError('Vui lòng nhập địa chỉ IP của Máy Chủ!');
+                if (typeof window.pauseNetworkAnimation === 'function') {
+                    window.pauseNetworkAnimation(false);
+                }
                 return;
             }
 
@@ -715,18 +753,17 @@
                 });
             };
 
-            ws.onmessage = async (event) => {
+            let binaryChain = Promise.resolve();
+            ws.onmessage = (event) => {
                 if (typeof event.data === 'string') {
                     handleTextMessage(event.data);
                 } else if (event.data instanceof ArrayBuffer) {
-                    handleBinaryFrame(event.data);
+                    binaryChain = binaryChain.then(() => handleBinaryFrame(event.data)).catch(console.error);
                 } else if (event.data instanceof Blob) {
-                    try {
+                    binaryChain = binaryChain.then(async () => {
                         const buf = await event.data.arrayBuffer();
-                        handleBinaryFrame(buf);
-                    } catch (e) {
-                        console.error('Lỗi chuyển đổi Blob sang ArrayBuffer:', e);
-                    }
+                        return handleBinaryFrame(buf);
+                    }).catch(console.error);
                 }
             };
 
@@ -830,6 +867,9 @@
                     showClientError(msg.message || 'Mật khẩu xác thực không đúng!');
                     showToast(msg.message || 'Kết nối không thành công!', 'error');
                     setConnectingButton(false);
+                    if (typeof window.pauseNetworkAnimation === 'function') {
+                        window.pauseNetworkAnimation(false);
+                    }
                     if (ws) ws.close();
                 }
             } else if (msg.type === 'pong') {
@@ -839,18 +879,22 @@
                 else if (rtt < 160) latencyDot.className = 'stat-dot dot-yellow';
                 else latencyDot.className = 'stat-dot dot-red';
 
-                // Tự động thích ứng chất lượng theo độ trễ RTT nếu người dùng chưa chọn thủ công
-                if (!window.isManualQualitySelected) {
-                    if (rtt > 260 && window.currentAdaptiveQuality !== 0.35) {
-                        window.currentAdaptiveQuality = 0.35;
-                        sendJson({ type: 'quality', value: '0.35' });
-                        sendJson({ type: 'target_fps', value: '18' });
-                    } else if (rtt > 120 && rtt <= 260 && window.currentAdaptiveQuality !== 0.50) {
-                        window.currentAdaptiveQuality = 0.50;
-                        sendJson({ type: 'quality', value: '0.50' });
-                        sendJson({ type: 'target_fps', value: '24' });
-                    } else if (rtt <= 120 && window.currentAdaptiveQuality !== 0.65) {
+                // Tự động thích ứng chất lượng theo độ trễ RTT với độ trễ tối thiểu 12s tránh đổi liên tục gây chớp hình
+                const nowTime = Date.now();
+                if (!window.isManualQualitySelected && (!window.lastAdaptiveChangeTime || nowTime - window.lastAdaptiveChangeTime > 12000)) {
+                    if (rtt > 280 && window.currentAdaptiveQuality !== 0.40) {
+                        window.currentAdaptiveQuality = 0.40;
+                        window.lastAdaptiveChangeTime = nowTime;
+                        sendJson({ type: 'quality', value: '0.40' });
+                        sendJson({ type: 'target_fps', value: '20' });
+                    } else if (rtt > 140 && rtt <= 280 && window.currentAdaptiveQuality !== 0.55) {
+                        window.currentAdaptiveQuality = 0.55;
+                        window.lastAdaptiveChangeTime = nowTime;
+                        sendJson({ type: 'quality', value: '0.55' });
+                        sendJson({ type: 'target_fps', value: '25' });
+                    } else if (rtt <= 140 && window.currentAdaptiveQuality !== 0.65) {
                         window.currentAdaptiveQuality = 0.65;
+                        window.lastAdaptiveChangeTime = nowTime;
                         sendJson({ type: 'quality', value: '0.65' });
                         sendJson({ type: 'target_fps', value: '30' });
                     }
@@ -904,78 +948,95 @@
                 finalizeFileDownload(msg.name);
             } else if (msg.type === 'file_download_error') {
                 showToast(msg.message || 'Lỗi tải tệp!', 'error');
+                if (msg.name && downloadResolvers[msg.name]) {
+                    downloadResolvers[msg.name]();
+                    delete downloadResolvers[msg.name];
+                }
+            } else if (msg.type === 'toast') {
+                showToast(msg.message || '', msg.toastType || 'info');
             }
         } catch (e) {
             console.error('Error parsing text frame:', e);
         }
     }
 
-    // ================= STRICT FIFO FRAME RENDERING QUEUE =================
-    // Loại bỏ hoàn toàn lỗi hình giật/nhấp nháy do giải mã Promise bất đồng bộ ngoài thứ tự
-    const frameQueue = [];
-    let isProcessingFrame = false;
+    // ================= HIGH-PERFORMANCE VSYNC RENDERER =================
+    // Loại bỏ 100% hiện tượng chớp nhấp nháy bằng cách:
+    // 1. Chỉ giữ khung hình MỚI NHẤT (Skip-to-Latest), triệt tiêu hoàn toàn giật lag hàng đợi
+    // 2. Đồng bộ vẽ hoàn hảo với tần số quét màn hình (60Hz / 120Hz) qua requestAnimationFrame
+    let pendingBlob = null;
+    let pendingMeta = null;
+    let isRenderScheduled = false;
 
-    function enqueueFrame(frameTask) {
-        frameQueue.push(frameTask);
-        if (!isProcessingFrame) {
-            processFrameQueue();
+    function renderNextFrame() {
+        if (!pendingBlob) {
+            isRenderScheduled = false;
+            return;
         }
-    }
 
-    async function processFrameQueue() {
-        if (isProcessingFrame) return;
-        isProcessingFrame = true;
+        const blob = pendingBlob;
+        const meta = pendingMeta;
+        pendingBlob = null;
+        pendingMeta = null;
 
-        while (frameQueue.length > 0) {
-            // Tự động triệt tiêu độ trễ: Nếu hàng đợi bị ứ đọng (> 3 frames), tự động nhảy cóc tới Keyframe mới nhất
-            if (frameQueue.length > 3) {
-                let newestKeyIdx = -1;
-                for (let i = frameQueue.length - 1; i >= 0; i--) {
-                    if (frameQueue[i].isKeyframe) {
-                        newestKeyIdx = i;
-                        break;
-                    }
-                }
-                if (newestKeyIdx > 0) {
-                    frameQueue.splice(0, newestKeyIdx);
-                }
-            }
-
-            const task = frameQueue.shift();
-            if (!task) break;
-
-            try {
-                if (window.createImageBitmap) {
-                    const bitmap = await createImageBitmap(task.blob);
-                    ctx.drawImage(bitmap, task.targetX, task.targetY, task.targetW, task.targetH);
-                    bitmap.close();
+        if (window.createImageBitmap) {
+            createImageBitmap(blob).then((bitmap) => {
+                if (meta.isKeyframe || (meta.targetX === 0 && meta.targetY === 0 && meta.targetW === remoteCanvas.width && meta.targetH === remoteCanvas.height)) {
+                    ctx.drawImage(bitmap, 0, 0, remoteCanvas.width, remoteCanvas.height);
                 } else {
-                    await new Promise((resolve) => {
-                        const url = URL.createObjectURL(task.blob);
-                        const img = new Image();
-                        img.onload = () => {
-                            ctx.drawImage(img, task.targetX, task.targetY, task.targetW, task.targetH);
-                            URL.revokeObjectURL(url);
-                            resolve();
-                        };
-                        img.onerror = () => {
-                            URL.revokeObjectURL(url);
-                            resolve();
-                        };
-                        img.src = url;
-                    });
+                    ctx.drawImage(bitmap, meta.targetX, meta.targetY, meta.targetW, meta.targetH);
                 }
-
-                if (canvasLoading.style.display !== 'none') {
+                bitmap.close();
+                if (canvasLoading && canvasLoading.style.display !== 'none') {
                     canvasLoading.style.display = 'none';
                 }
                 updateFpsCounter();
-            } catch (renderErr) {
-                console.warn('[Render Queue Error]:', renderErr);
-            }
-        }
 
-        isProcessingFrame = false;
+                if (pendingBlob) {
+                    requestAnimationFrame(renderNextFrame);
+                } else {
+                    isRenderScheduled = false;
+                }
+            }).catch((err) => {
+                console.warn('[Render Error]:', err);
+                isRenderScheduled = false;
+            });
+        } else {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                if (meta.isKeyframe || (meta.targetX === 0 && meta.targetY === 0 && meta.targetW === remoteCanvas.width && meta.targetH === remoteCanvas.height)) {
+                    ctx.drawImage(img, 0, 0, remoteCanvas.width, remoteCanvas.height);
+                } else {
+                    ctx.drawImage(img, meta.targetX, meta.targetY, meta.targetW, meta.targetH);
+                }
+                URL.revokeObjectURL(url);
+                if (canvasLoading && canvasLoading.style.display !== 'none') {
+                    canvasLoading.style.display = 'none';
+                }
+                updateFpsCounter();
+                if (pendingBlob) {
+                    requestAnimationFrame(renderNextFrame);
+                } else {
+                    isRenderScheduled = false;
+                }
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                isRenderScheduled = false;
+            };
+            img.src = url;
+        }
+    }
+
+    function enqueueFrame(frameTask) {
+        pendingBlob = frameTask.blob;
+        pendingMeta = frameTask;
+
+        if (!isRenderScheduled) {
+            isRenderScheduled = true;
+            requestAnimationFrame(renderNextFrame);
+        }
     }
 
     async function handleBinaryFrame(arrayBuffer) {
@@ -1302,32 +1363,50 @@
     window.addEventListener('resize', updateCanvasRect);
     window.addEventListener('scroll', updateCanvasRect);
 
-    function getCanvasCoordinates(e) {
-        if (!cachedCanvasRect || cachedCanvasRect.width === 0) {
+    function getCanvasCoordinates(e, forceRefresh = false) {
+        if (forceRefresh || !cachedCanvasRect || cachedCanvasRect.width === 0) {
             cachedCanvasRect = remoteCanvas.getBoundingClientRect();
         }
         const rect = cachedCanvasRect;
-        const scaleX = serverWidth / (rect.width || 1);
-        const scaleY = serverHeight / (rect.height || 1);
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+            return { x: 0, y: 0 };
+        }
 
+        // Tọa độ chuột tương đối trên phần tử Canvas
         const clientX = e.clientX - rect.left;
         const clientY = e.clientY - rect.top;
 
-        const x = Math.max(0, Math.min(serverWidth, Math.round(clientX * scaleX)));
-        const y = Math.max(0, Math.min(serverHeight, Math.round(clientY * scaleY)));
+        // Ánh xạ trực tiếp theo độ phân giải canvas nội tại
+        const targetW = remoteCanvas.width || serverWidth || 1;
+        const targetH = remoteCanvas.height || serverHeight || 1;
+
+        const scaleX = targetW / rect.width;
+        const scaleY = targetH / rect.height;
+
+        const x = Math.max(0, Math.min(targetW, Math.round(clientX * scaleX)));
+        const y = Math.max(0, Math.min(targetH, Math.round(clientY * scaleY)));
 
         return { x, y };
     }
 
 
+    let lastSentX = -1;
+    let lastSentY = -1;
+
     remoteCanvas.addEventListener('mousemove', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
         const now = performance.now();
-        if (now - lastMouseMoveTime < 32) return;
-        if (ws && ws.bufferedAmount > 32 * 1024) return;
-        lastMouseMoveTime = now;
+        if (now - lastMouseMoveTime < 35) return;
 
         const coords = getCanvasCoordinates(e);
+        // Bỏ qua nếu di chuyển dưới 2px và chưa qua 100ms (giảm 60% nghẽn mạng)
+        if (Math.abs(coords.x - lastSentX) < 2 && Math.abs(coords.y - lastSentY) < 2 && (now - lastMouseMoveTime < 100)) {
+            return;
+        }
+
+        lastMouseMoveTime = now;
+        lastSentX = coords.x;
+        lastSentY = coords.y;
         sendJson({ type: 'mouse', action: 'move', x: coords.x, y: coords.y });
     });
 
@@ -1335,16 +1414,26 @@
         if (!isControlEnabled || !isAuthenticated) return;
         e.preventDefault();
         remoteCanvas.focus();
+        cachedCanvasRect = remoteCanvas.getBoundingClientRect(); // Luôn lấy tọa độ chuẩn xác khi click
 
-        const coords = getCanvasCoordinates(e);
-        sendJson({ type: 'mouse', action: 'move', x: coords.x, y: coords.y });
-        sendJson({ type: 'mouse', action: 'down', button: e.button });
+        const coords = getCanvasCoordinates(e, true);
+        lastSentX = coords.x;
+        lastSentY = coords.y;
+        sendJson({ type: 'mouse', action: 'down', button: e.button, x: coords.x, y: coords.y });
     });
 
     remoteCanvas.addEventListener('mouseup', (e) => {
         if (!isControlEnabled || !isAuthenticated) return;
         e.preventDefault();
-        sendJson({ type: 'mouse', action: 'up', button: e.button });
+        const coords = getCanvasCoordinates(e, true);
+        sendJson({ type: 'mouse', action: 'up', button: e.button, x: coords.x, y: coords.y });
+    });
+
+    remoteCanvas.addEventListener('dblclick', (e) => {
+        if (!isControlEnabled || !isAuthenticated) return;
+        e.preventDefault();
+        const coords = getCanvasCoordinates(e, true);
+        sendJson({ type: 'mouse', action: 'dblclick', button: e.button, x: coords.x, y: coords.y });
     });
 
     remoteCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1421,6 +1510,8 @@
     const remoteFilesList = document.getElementById('remoteFilesList');
     const chkSelectAllDl = document.getElementById('chkSelectAllDl');
     const btnDownloadSelected = document.getElementById('btnDownloadSelected');
+    const selDownloadFolder = document.getElementById('selDownloadFolder');
+    const btnOpenServerFolder = document.getElementById('btnOpenServerFolder');
 
     let uploadQueue = []; // [{ id, file, status: 'pending'|'uploading'|'success'|'error', percent: 0 }]
     let isUploadingQueue = false;
@@ -1429,12 +1520,26 @@
     let downloadResolvers = {};
     let remoteFilesData = [];
 
+    const requestFileList = () => {
+        const folder = selDownloadFolder ? selDownloadFolder.value : 'received';
+        if (remoteFilesList) {
+            remoteFilesList.innerHTML = '<p class="empty-files-text">Đang tải danh sách tệp...</p>';
+        }
+        sendJson({ type: 'file_list', folder: folder });
+    };
+
     // Lắng nghe tín hiệu ACK xác thực từ máy chủ
     window.onFileUploadSuccess = function (msg) {
         const fileId = msg.fileId;
         if (fileId && uploadAckWaiters[fileId]) {
             uploadAckWaiters[fileId](msg);
             delete uploadAckWaiters[fileId];
+        } else {
+            const firstKey = Object.keys(uploadAckWaiters)[0];
+            if (firstKey) {
+                uploadAckWaiters[firstKey](msg);
+                delete uploadAckWaiters[firstKey];
+            }
         }
     };
 
@@ -1443,6 +1548,12 @@
         if (fileId && uploadAckWaiters[fileId]) {
             uploadAckWaiters[fileId]({ error: true, message: msg.message });
             delete uploadAckWaiters[fileId];
+        } else {
+            const firstKey = Object.keys(uploadAckWaiters)[0];
+            if (firstKey) {
+                uploadAckWaiters[firstKey]({ error: true, message: msg.message });
+                delete uploadAckWaiters[firstKey];
+            }
         }
     };
 
@@ -1467,11 +1578,29 @@
             tabUploadBtn.classList.remove('active');
             paneDownload.classList.add('active');
             paneUpload.classList.remove('active');
-            sendJson({ type: 'file_list' });
+            requestFileList();
         });
 
         if (btnRefreshFiles) {
-            btnRefreshFiles.addEventListener('click', () => sendJson({ type: 'file_list' }));
+            btnRefreshFiles.addEventListener('click', requestFileList);
+        }
+
+        if (selDownloadFolder) {
+            selDownloadFolder.addEventListener('change', requestFileList);
+        }
+
+        if (btnOpenServerFolder) {
+            btnOpenServerFolder.addEventListener('click', () => {
+                const folder = selDownloadFolder ? selDownloadFolder.value : 'received';
+                sendJson({ type: 'open_folder', folder: folder });
+            });
+        }
+
+        const btnOpenServerFolderFromUpload = document.getElementById('btnOpenServerFolderFromUpload');
+        if (btnOpenServerFolderFromUpload) {
+            btnOpenServerFolderFromUpload.addEventListener('click', () => {
+                sendJson({ type: 'open_folder', folder: 'received' });
+            });
         }
 
         // Kéo thả một hoặc nhiều tệp tin
@@ -1620,16 +1749,16 @@
                     size: totalSize
                 });
 
-                // 2. Cắt lát và gửi từng chunk 128KB
-                const chunkSize = 128 * 1024; // 128KB tối ưu
+                // 2. Cắt lát và gửi từng chunk 512KB siêu tốc (tăng gấp 4 lần)
+                const chunkSize = 512 * 1024; // 512KB tối ưu
                 const totalChunks = Math.ceil(totalSize / chunkSize) || 1;
                 let sentBytes = 0;
                 const uploadStartTime = performance.now();
 
                 for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
-                    // Kiểm soát dòng dữ liệu (Backpressure) tránh nghẽn bộ đệm WebSocket
-                    while (ws && ws.bufferedAmount > 384 * 1024) {
-                        await new Promise(r => setTimeout(r, 4));
+                    // Kiểm soát dòng dữ liệu (Backpressure) tối ưu 2.5MB
+                    while (ws && ws.bufferedAmount > 2560 * 1024) {
+                        await new Promise(r => setTimeout(r, 2));
                     }
 
                     const start = cIdx * chunkSize;
@@ -1644,7 +1773,7 @@
                     });
 
                     sentBytes += (end - start);
-                    const percent = Math.min(99, Math.round((sentBytes / totalSize) * 100));
+                    const percent = totalSize > 0 ? Math.min(99, Math.round((sentBytes / totalSize) * 100)) : 100;
                     item.percent = percent;
 
                     // Cập nhật giao diện tốc độ MB/s
@@ -1652,7 +1781,9 @@
                     const speedMBps = elapsedSec > 0 ? ((sentBytes / (1024 * 1024)) / elapsedSec).toFixed(1) : '0.0';
                     if (lblUploadSpeed) lblUploadSpeed.textContent = `${speedMBps} MB/s`;
 
-                    const overallPercent = Math.min(99, Math.round(((fIdx + (sentBytes / totalSize)) / totalFiles) * 100));
+                    const overallPercent = totalFiles > 0
+                        ? Math.min(99, Math.round(((fIdx + (totalSize > 0 ? sentBytes / totalSize : 1)) / totalFiles) * 100))
+                        : 100;
                     if (uploadProgressBar) uploadProgressBar.style.width = `${overallPercent}%`;
                     if (lblUploadProgress) {
                         lblUploadProgress.textContent = `Tệp ${fIdx + 1}/${totalFiles} (${escapeHtml(file.name)}): ${percent}%`;
@@ -1673,6 +1804,7 @@
                 if (ackResult && !ackResult.error) {
                     item.status = 'success';
                     item.percent = 100;
+                    item.savedPath = ackResult.savedPath || '';
                     successCount++;
                 } else {
                     item.status = 'error';
@@ -1688,8 +1820,13 @@
                 lblUploadProgress.textContent = `Hoàn tất gửi ${successCount}/${totalFiles} tệp tin!`;
             }
 
-            showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin lên máy chủ!`, 'success');
-            sendJson({ type: 'file_list' }); // Cập nhật lại danh sách tệp
+            const lastSaved = uploadQueue.find(i => i.savedPath)?.savedPath;
+            if (lastSaved) {
+                showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin!\n📂 Lưu tại: ${lastSaved}`, 'success');
+            } else {
+                showToast(`Đã gửi thành công ${successCount}/${totalFiles} tệp tin lên máy chủ! (Thư mục Downloads/RemoteDesktop_Received)`, 'success');
+            }
+            requestFileList(); // Cập nhật lại danh sách tệp theo đúng thư mục đang chọn
 
             setTimeout(() => {
                 if (uploadProgressContainer) uploadProgressContainer.style.display = 'none';
@@ -1806,9 +1943,10 @@
 
     function startDownloadFile(name) {
         return new Promise((resolve) => {
+            const folder = selDownloadFolder ? selDownloadFolder.value : 'received';
             downloadFileChunks[name] = [];
             downloadResolvers[name] = resolve;
-            sendJson({ type: 'file_download_req', name: name });
+            sendJson({ type: 'file_download_req', name: name, folder: folder });
             showToast(`Đang tải tệp [${name}] từ máy chủ...`, 'info');
         });
     }
@@ -1826,17 +1964,23 @@
     function handleDownloadChunk(msg) {
         if (!downloadFileChunks[msg.name]) downloadFileChunks[msg.name] = [];
         try {
-            downloadFileChunks[msg.name].push(base64ToUint8Array(msg.data));
+            const idx = typeof msg.chunk === 'number' ? msg.chunk : downloadFileChunks[msg.name].length;
+            downloadFileChunks[msg.name][idx] = base64ToUint8Array(msg.data);
         } catch (e) {
             console.error('Lỗi giải mã chunk tệp:', e);
         }
     }
 
     function finalizeFileDownload(fileName) {
-        const chunks = downloadFileChunks[fileName];
-        if (!chunks || chunks.length === 0) return;
+        const rawChunks = downloadFileChunks[fileName];
+        if (!rawChunks) return;
 
-        // Tạo trực tiếp Blob từ mảng Uint8Array trong 1ms, không bị đơ 1-2 phút
+        // Bảo đảm đúng thứ tự các chunk nhị phân
+        const chunks = [];
+        for (let i = 0; i < rawChunks.length; i++) {
+            if (rawChunks[i]) chunks.push(rawChunks[i]);
+        }
+
         const blob = new Blob(chunks, { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1862,6 +2006,13 @@
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    if (btnOpenServerFolder) {
+        btnOpenServerFolder.addEventListener('click', () => {
+            sendJson({ type: 'open_received_folder' });
+            showToast('Đang yêu cầu mở thư mục tệp tin trên màn hình máy chủ...', 'info');
+        });
     }
 
     // ================= MOBILE TOUCH & VIRTUAL KEYBOARD CONTROLS =================
@@ -2137,7 +2288,7 @@
     }
 
     // ================= REMOTE AUDIO STREAMING =================
-    let isAudioEnabled = true;
+    let isAudioEnabled = false; // Mặc định TẮT âm thanh để dồn toàn bộ băng thông cho màn hình siêu mượt không lag
     let audioCtx = null;
     let audioGainNode = null;
     let nextAudioPlayTime = 0;
@@ -2220,6 +2371,9 @@
 
     // ================= CYBER NETWORK CONSTELLATION CANVAS (MẠNG LƯỚI KẾT NỐI CÔNG NGHỆ 60 FPS) =================
     function initNetworkCanvas() {
+        if (window.__networkCanvasInitialized) return;
+        window.__networkCanvasInitialized = true;
+
         const canvas = document.getElementById('networkCanvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
@@ -2259,8 +2413,10 @@
                 }
                 ctx.clearRect(0, 0, width, height);
                 canvas.style.display = 'none';
+                canvas.style.visibility = 'hidden';
             } else {
                 canvas.style.display = 'block';
+                canvas.style.visibility = 'visible';
                 if (!animFrameId) {
                     animateNetwork();
                 }

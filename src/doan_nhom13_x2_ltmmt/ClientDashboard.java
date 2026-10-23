@@ -177,6 +177,7 @@ public class ClientDashboard extends JFrame implements ViewerCallback {
             try {
                 // 1. Kết nối kênh truyền hình ảnh (Screen Socket)
                 Socket screenSocket = new Socket(host, port);
+                screenSocket.setTcpNoDelay(true);
                 DataOutputStream dos = new DataOutputStream(screenSocket.getOutputStream());
                 DataInputStream dis = new DataInputStream(screenSocket.getInputStream());
 
@@ -203,6 +204,7 @@ public class ClientDashboard extends JFrame implements ViewerCallback {
 
                 // 2. Kết nối kênh truyền sự kiện điều khiển (Command Socket = Port + 1)
                 Socket commandSocket = new Socket(host, port + 1);
+                commandSocket.setTcpNoDelay(true);
                 PrintWriter commandWriter = new PrintWriter(new OutputStreamWriter(commandSocket.getOutputStream()), true);
 
                 SwingUtilities.invokeLater(() -> {

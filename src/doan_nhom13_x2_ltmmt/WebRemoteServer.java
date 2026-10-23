@@ -75,10 +75,15 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             gwUrl = System.getProperty("gateway.url", "ws://127.0.0.1:3000");
         }
         this.gatewayConnector = new GatewayConnector(gwUrl, deviceId, () -> this.password, this);
+        this.gatewayConnector.setOnConnectionFailed(this::ensureGatewayRunning);
         this.gatewayConnector.start();
 
         appendLog("Khởi tạo Web Remote Platform trên cổng " + port + ". IP: " + localIp);
         appendLog("Mã Thiết Bị Internet (Device ID): " + GatewayConnector.formatDeviceId(deviceId));
+
+        if (Boolean.getBoolean("auto.tunnel")) {
+            startInternetTunnel();
+        }
     }
 
     public static String generateRandomDeviceId() {
@@ -144,10 +149,11 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
         new Thread(() -> {
             try {
-                // Dọn dẹp tiến trình cloudflared và node cũ để luôn nạp bản mới nhất
+                // Dọn dẹp tiến trình cloudflared cũ để tránh xung đột cổng
                 try {
-                    new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start().waitFor();
-                    new ProcessBuilder("taskkill", "/F", "/IM", "node.exe").start().waitFor();
+                    ProcessHandle.allProcesses()
+                            .filter(p -> p.info().command().map(c -> c.toLowerCase().contains("cloudflared")).orElse(false))
+                            .forEach(ProcessHandle::destroyForcibly);
                     Thread.sleep(400);
                 } catch (Exception ignored) {}
 
@@ -168,24 +174,53 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                     return;
                 }
 
-                ProcessBuilder pb = new ProcessBuilder(cfExe.getAbsolutePath(), "tunnel", "--no-autoupdate", "--no-prechecks", "--edge-ip-version", "4", "--url", "http://localhost:3000");
+                ProcessBuilder pb = new ProcessBuilder(
+                        cfExe.getAbsolutePath(), "tunnel",
+                        "--no-autoupdate",
+                        "--no-prechecks",
+                        "--protocol", "http2",
+                        "--edge-ip-version", "4",
+                        "--metrics", "localhost:0",
+                        "--url", "http://localhost:3000"
+                );
                 pb.redirectErrorStream(true);
                 tunnelProcess = pb.start();
 
                 BufferedReader reader = new BufferedReader(new InputStreamReader(tunnelProcess.getInputStream()));
                 String line;
                 Pattern urlPattern = Pattern.compile("https://[a-zA-Z0-9-]+\\.trycloudflare\\.com");
+                long startTime = System.currentTimeMillis();
+                boolean found = false;
+
                 while ((line = reader.readLine()) != null) {
                     Matcher m = urlPattern.matcher(line);
                     if (m.find()) {
                         currentTunnelUrl = m.group(0);
+                        found = true;
                         appendLog("CloudTunnel: ĐÃ KÍCH HOẠT! Link Internet 4G: " + currentTunnelUrl);
+
+                        try {
+                            java.nio.file.Files.writeString(
+                                    new File("tunnel_url.txt").toPath(),
+                                    currentTunnelUrl,
+                                    java.nio.charset.StandardCharsets.UTF_8);
+                        } catch (Exception ignored) {}
+
                         // Đảm bảo host đăng ký chắc chắn trên Gateway
                         if (gatewayConnector != null) {
                             gatewayConnector.reconnectNow();
                         }
                         break;
                     }
+                    if (System.currentTimeMillis() - startTime > 25000) {
+                        appendLog("CloudTunnel: Quá thời gian chờ (25s) kết nối Cloudflare Edge!");
+                        break;
+                    }
+                }
+
+                if (!found && (currentTunnelUrl == null || currentTunnelUrl.isEmpty())) {
+                    appendLog("CloudTunnel lỗi: Không nhận được URL từ Cloudflare hoặc tiến trình đã dừng.");
+                    isTunnelActive = false;
                 }
 
                 // Tiếp tục đọc log ngầm để tránh đầy buffer ống dẫn (pipe buffer) làm treo cloudflared
@@ -202,6 +237,9 @@ public class WebRemoteServer implements Runnable, ServerLogger {
     public synchronized void stopInternetTunnel() {
         isTunnelActive = false;
         currentTunnelUrl = "";
+        try {
+            new File("tunnel_url.txt").delete();
+        } catch (Exception ignored) {}
         if (tunnelProcess != null) {
             try {
                 tunnelProcess.destroyForcibly();
@@ -209,35 +247,80 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             } catch (Exception ignored) {}
         }
         try {
-            new ProcessBuilder("taskkill", "/F", "/IM", "cloudflared.exe").start();
+            ProcessHandle.allProcesses()
+                    .filter(p -> p.info().command().map(c -> c.toLowerCase().contains("cloudflared")).orElse(false))
+                    .forEach(ProcessHandle::destroyForcibly);
         } catch (Exception ignored) {}
         appendLog("CloudTunnel: Đã tắt cầu nối Internet 4G.");
     }
 
-    private synchronized void ensureGatewayRunning() {
+    public synchronized void ensureGatewayRunning() {
         try {
             Socket test = new Socket("127.0.0.1", 3000);
             test.close();
+            return;
         } catch (Exception notRunning) {
-            try {
-                File gwDir = new File("gateway");
-                if (!gwDir.exists()) gwDir = new File("..", "gateway");
-                ProcessBuilder pb = new ProcessBuilder("node", "server.js");
-                pb.directory(gwDir);
-                pb.redirectErrorStream(true);
-                gatewayProcess = pb.start();
-                // Đọc ngầm để không bị nghẽn buffer ống dẫn
-                new Thread(() -> {
-                    try (BufferedReader r = new BufferedReader(new InputStreamReader(gatewayProcess.getInputStream()))) {
-                        String l;
-                        while ((l = r.readLine()) != null) {}
-                    } catch (Exception ignored) {}
-                }, "Gateway-Log-Drainer").start();
-                appendLog("WebRemoteServer: Tự động khởi động Cloud Gateway trên cổng 3000.");
-                Thread.sleep(1500);
-            } catch (Exception e) {
-                appendLog("Lỗi khởi chạy Gateway: " + e.getMessage());
+            // Cổng 3000 chưa chạy, tiến hành khởi động tự động
+        }
+
+        try {
+            File[] candidateDirs = new File[] {
+                new File("gateway"),
+                new File("..", "gateway"),
+                new File("DoAn_Nhom13_X2_LTMMT", "gateway"),
+                new File(System.getProperty("user.dir", "."), "gateway"),
+                new File(System.getProperty("user.dir", "."), "DoAn_Nhom13_X2_LTMMT/gateway")
+            };
+            File gwDir = null;
+            for (File d : candidateDirs) {
+                if (d.exists() && new File(d, "server.js").exists()) {
+                    gwDir = d;
+                    break;
+                }
             }
+
+            if (gwDir == null) {
+                appendLog("Lỗi khởi chạy Gateway: Không tìm thấy thư mục 'gateway' chứa server.js!");
+                return;
+            }
+
+            // Tìm file thực thi node
+            String nodeExe = "node";
+            String[] candidateNodes = new String[] {
+                "C:\\Program Files\\nodejs\\node.exe",
+                "C:\\Program Files (x86)\\nodejs\\node.exe",
+                System.getenv("LOCALAPPDATA") != null ? System.getenv("LOCALAPPDATA") + "\\Programs\\node\\node.exe" : "",
+                "node"
+            };
+            for (String n : candidateNodes) {
+                if (n.isEmpty()) continue;
+                if (n.equals("node")) {
+                    nodeExe = n;
+                    break;
+                }
+                if (new File(n).exists()) {
+                    nodeExe = n;
+                    break;
+                }
+            }
+
+            ProcessBuilder pb = new ProcessBuilder(nodeExe, "server.js");
+            pb.directory(gwDir);
+            pb.redirectErrorStream(true);
+            gatewayProcess = pb.start();
+
+            // Đọc ngầm để không bị nghẽn buffer ống dẫn
+            new Thread(() -> {
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(gatewayProcess.getInputStream()))) {
+                    String l;
+                    while ((l = r.readLine()) != null) {}
+                } catch (Exception ignored) {}
+            }, "Gateway-Log-Drainer").start();
+
+            appendLog("WebRemoteServer: Tự động khởi động Cloud Gateway trên cổng 3000 (" + nodeExe + ").");
+            Thread.sleep(1200);
+        } catch (Exception e) {
+            appendLog("Lỗi khởi chạy Gateway: " + e.getMessage());
         }
     }
 
@@ -267,6 +350,11 @@ public class WebRemoteServer implements Runnable, ServerLogger {
             while (running && !serverSocket.isClosed()) {
                 try {
                     Socket clientSocket = serverSocket.accept();
+                    try {
+                        clientSocket.setTcpNoDelay(true); // Vô hiệu hóa Nagle algorithm (gửi tức thì 0ms delay)
+                        clientSocket.setSendBufferSize(256 * 1024);
+                        clientSocket.setReceiveBufferSize(256 * 1024);
+                    } catch (Exception ignored) {}
                     threadPool.submit(() -> handleClient(clientSocket));
                 } catch (IOException e) {
                     if (running) {
@@ -608,6 +696,7 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         // Nếu không có dữ liệu trong 15 giây, SocketTimeoutException sẽ được ném
         // và ta kiểm tra xem screenCaster còn chạy không trước khi tiếp tục.
         try {
+            socket.setTcpNoDelay(true);
             socket.setSoTimeout(15000);
         } catch (Exception ignored) {}
 
@@ -650,101 +739,103 @@ public class WebRemoteServer implements Runnable, ServerLogger {
                 }
 
                 String json = frame.asText();
+
+                if (authenticated[0]) {
+                    if (inputHandlerRef[0] != null) {
+                        inputHandlerRef[0].handleMessage(json);
+                    }
+                    continue;
+                }
+
                 Map<String, String> data = WebInputHandler.parseSimpleJson(json);
                 String type = data.get("type");
 
-                if (!authenticated[0]) { // chưa xác thực
-                    if ("auth".equals(type)) {
-                        String clientIp = socket.getInetAddress().getHostAddress();
+                if ("auth".equals(type)) {
+                    String clientIp = socket.getInetAddress().getHostAddress();
 
-                        // Kiểm tra trạng thái khóa IP do brute-force
-                        Long expiry = lockoutExpiry.get(clientIp);
-                        if (expiry != null) {
-                            if (System.currentTimeMillis() < expiry) {
-                                long remainingSec = (expiry - System.currentTimeMillis()) / 1000;
-                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Địa chỉ IP này bị khóa tạm " + remainingSec + " giây do nhập sai mật khẩu quá 5 lần!\"}";
-                                WebSocketHelper.sendTextFrame(out, resp);
-                                appendLog("[CẢNH BÁO BẢO MẬT] Chặn IP " + clientIp + " (Đang bị khóa do nghi vấn Brute-Force)");
-                                break;
-                            } else {
-                                lockoutExpiry.remove(clientIp);
-                                failedAttempts.remove(clientIp);
-                            }
-                        }
-
-                        if (!isSharingEnabled) {
-                            String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Máy chủ hiện đang TẮT chế độ chia sẻ màn hình!\"}";
+                    // Kiểm tra trạng thái khóa IP do brute-force
+                    Long expiry = lockoutExpiry.get(clientIp);
+                    if (expiry != null) {
+                        if (System.currentTimeMillis() < expiry) {
+                            long remainingSec = (expiry - System.currentTimeMillis()) / 1000;
+                            String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Địa chỉ IP này bị khóa tạm " + remainingSec + " giây do nhập sai mật khẩu quá 5 lần!\"}";
                             WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Từ chối kết nối từ " + clientIp + " (Chia sẻ đang tắt)");
+                            appendLog("[CẢNH BÁO BẢO MẬT] Chặn IP " + clientIp + " (Đang bị khóa do nghi vấn Brute-Force)");
                             break;
-                        }
-
-                        String clientPass = data.get("password");
-                        String normClient = clientPass != null ? clientPass.trim().toLowerCase() : "";
-                        String normExpected = password != null ? password.trim().toLowerCase() : "";
-                        boolean passMatch = false;
-                        if (!normExpected.isEmpty() && !normClient.isEmpty()) {
-                            passMatch = java.security.MessageDigest.isEqual(
-                                    normExpected.getBytes(StandardCharsets.UTF_8),
-                                    normClient.getBytes(StandardCharsets.UTF_8));
-                        }
-                        if (passMatch) {
-                            // Xóa lịch sử sai mật khẩu
-                            failedAttempts.remove(clientIp);
-                            lockoutExpiry.remove(clientIp);
-
-                            authenticated[0] = true;
-                            activeClients.incrementAndGet();
-                            Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
-
-                            // Khởi tạo SecretKey E2EE cho kết nối
-                            javax.crypto.SecretKey e2eeKey = null;
-                            try {
-                                e2eeKey = CryptoHelper.deriveKey(this.password);
-                            } catch (Exception ignored) {}
-
-                            String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
-                                    + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
-                            WebSocketHelper.sendTextFrame(out, resp);
-                            appendLog("Web Client (" + clientIp + ") xác thực THÀNH CÔNG (E2EE AES-256-GCM Sẵn sàng)! Đang truyền màn hình...");
-
-                            // Khởi động ScreenCaster trên luồng riêng
-                            screenCasterRef[0] = new WebScreenCaster(out, this);
-                            if (e2eeKey != null) {
-                                screenCasterRef[0].setE2eeKey(e2eeKey);
-                            }
-                            screenCasterRef[0].setUacStatusListener((active) -> {
-                                try {
-                                    WebSocketHelper.sendTextFrame(out, "{\"type\":\"uac_status\",\"active\":" + active + "}");
-                                } catch (Exception ignored) {}
-                            });
-                            new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
-
-                            // Khởi động WebAudioStreamer trên luồng riêng
-                            audioStreamerRef[0] = new WebAudioStreamer(out, this);
-                            new Thread(audioStreamerRef[0], "WebAudioStreamer-Thread").start();
-
-                            inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0], audioStreamerRef[0]);
                         } else {
-                            int fails = failedAttempts.getOrDefault(clientIp, 0) + 1;
-                            failedAttempts.put(clientIp, fails);
-
-                            if (fails >= 5) {
-                                lockoutExpiry.put(clientIp, System.currentTimeMillis() + 5 * 60 * 1000);
-                                appendLog("[CẢNH BÁO BẢO MẬT] ĐÃ KHÓA TẠM IP " + clientIp + " trong 5 phút do nhập sai mật khẩu liên tiếp " + fails + " lần!");
-                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Bạn đã nhập sai quá 5 lần! IP của bạn bị khóa tạm thời trong 5 phút.\"}";
-                                WebSocketHelper.sendTextFrame(out, resp);
-                            } else {
-                                String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! (Còn " + (5 - fails) + " lần thử)\"}";
-                                WebSocketHelper.sendTextFrame(out, resp);
-                                appendLog("Từ chối kết nối từ " + clientIp + " (Sai mật khẩu lần " + fails + "/5)");
-                            }
-                            break;
+                            lockoutExpiry.remove(clientIp);
+                            failedAttempts.remove(clientIp);
                         }
                     }
-                } else {
-                    if (inputHandlerRef[0] != null) {
-                        inputHandlerRef[0].handleMessage(json);
+
+                    if (!isSharingEnabled) {
+                        String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Máy chủ hiện đang TẮT chế độ chia sẻ màn hình!\"}";
+                        WebSocketHelper.sendTextFrame(out, resp);
+                        appendLog("Từ chối kết nối từ " + clientIp + " (Chia sẻ đang tắt)");
+                        break;
+                    }
+
+                    String clientPass = data.get("password");
+                    String normClient = clientPass != null ? clientPass.trim().toLowerCase() : "";
+                    String normExpected = password != null ? password.trim().toLowerCase() : "";
+                    boolean passMatch = false;
+                    if (!normExpected.isEmpty() && !normClient.isEmpty()) {
+                        passMatch = java.security.MessageDigest.isEqual(
+                                normExpected.getBytes(StandardCharsets.UTF_8),
+                                normClient.getBytes(StandardCharsets.UTF_8));
+                    }
+                    if (passMatch) {
+                        // Xóa lịch sử sai mật khẩu
+                        failedAttempts.remove(clientIp);
+                        lockoutExpiry.remove(clientIp);
+
+                        authenticated[0] = true;
+                        activeClients.incrementAndGet();
+                        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+
+                        // Khởi tạo SecretKey E2EE cho kết nối
+                        javax.crypto.SecretKey e2eeKey = null;
+                        try {
+                            e2eeKey = CryptoHelper.deriveKey(this.password);
+                        } catch (Exception ignored) {}
+
+                        String resp = "{\"type\":\"auth_result\",\"success\":true,\"width\":"
+                                + screenSize.width + ",\"height\":" + screenSize.height + ",\"e2ee\":true}";
+                        WebSocketHelper.sendTextFrame(out, resp);
+                        appendLog("Web Client (" + clientIp + ") xác thực THÀNH CÔNG (E2EE AES-256-GCM Sẵn sàng)! Đang truyền màn hình...");
+
+                        // Khởi động ScreenCaster trên luồng riêng
+                        screenCasterRef[0] = new WebScreenCaster(out, this);
+                        if (e2eeKey != null) {
+                            screenCasterRef[0].setE2eeKey(e2eeKey);
+                        }
+                        screenCasterRef[0].setUacStatusListener((active) -> {
+                            try {
+                                WebSocketHelper.sendTextFrame(out, "{\"type\":\"uac_status\",\"active\":" + active + "}");
+                            } catch (Exception ignored) {}
+                        });
+                        new Thread(screenCasterRef[0], "WebScreenCaster-Thread").start();
+
+                        // Khởi động WebAudioStreamer trên luồng riêng
+                        audioStreamerRef[0] = new WebAudioStreamer(out, this);
+                        new Thread(audioStreamerRef[0], "WebAudioStreamer-Thread").start();
+
+                        inputHandlerRef[0] = new WebInputHandler(out, this, screenCasterRef[0], audioStreamerRef[0]);
+                    } else {
+                        int fails = failedAttempts.getOrDefault(clientIp, 0) + 1;
+                        failedAttempts.put(clientIp, fails);
+
+                        if (fails >= 5) {
+                            lockoutExpiry.put(clientIp, System.currentTimeMillis() + 5 * 60 * 1000);
+                            appendLog("[CẢNH BÁO BẢO MẬT] ĐÃ KHÓA TẠM IP " + clientIp + " trong 5 phút do nhập sai mật khẩu liên tiếp " + fails + " lần!");
+                            String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"[BẢO MẬT] Bạn đã nhập sai quá 5 lần! IP của bạn bị khóa tạm thời trong 5 phút.\"}";
+                            WebSocketHelper.sendTextFrame(out, resp);
+                        } else {
+                            String resp = "{\"type\":\"auth_result\",\"success\":false,\"message\":\"Mật khẩu không chính xác! (Còn " + (5 - fails) + " lần thử)\"}";
+                            WebSocketHelper.sendTextFrame(out, resp);
+                            appendLog("Từ chối kết nối từ " + clientIp + " (Sai mật khẩu lần " + fails + "/5)");
+                        }
+                        break;
                     }
                 }
             }
@@ -803,6 +894,10 @@ public class WebRemoteServer implements Runnable, ServerLogger {
         return port;
     }
 
+    public String getDeviceId() {
+        return deviceId;
+    }
+
     private static String escapeJson(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "");
@@ -810,15 +905,21 @@ public class WebRemoteServer implements Runnable, ServerLogger {
 
     /**
      * Điểm khởi chạy độc lập thuần Web Platform (Không cần giao diện Swing Desktop)
+     * Tích hợp tự động mở Web và kích hoạt Cầu nối 4G Internet Cloudflare.
      */
     public static void main(String[] args) {
         WebRemoteServer server = new WebRemoteServer(8080, null, null);
         new Thread(server, "Main-WebRemoteServer").start();
 
+        // Tự động kích hoạt Cầu nối Internet 4G qua Cloudflare khi chạy trực tiếp file này
+        server.startInternetTunnel();
+
         System.out.println("==================================================================");
         System.out.println("  HE THONG DIEU KHIEN MAY TINH TU XA NEN TANG WEB - NHOM 13");
         System.out.println("  Dia chi Web Platform: http://localhost:8080");
         System.out.println("  Mat khau mac dinh:     " + server.getPassword());
+        System.out.println("  Ma Thiet Bi (ID):      " + GatewayConnector.formatDeviceId(server.getDeviceId()));
+        System.out.println("  Cau noi Internet 4G:   Dang ket noi Cloudflare Edge (3-5s)...");
         System.out.println("==================================================================");
 
         try {

@@ -27,7 +27,7 @@ public class WebScreenCaster implements Runnable {
     private final OutputStream out;
     private final ServerLogger logger;
     private volatile boolean running = true;
-    private volatile float quality = 0.65f;
+    private volatile float quality = 0.60f;
     private volatile int targetFps = 30;
 
     private Robot robot;
@@ -46,9 +46,20 @@ public class WebScreenCaster implements Runnable {
     private volatile boolean screenSwitchRequested = false;
     private final Object screenLock = new Object();
 
+    // Quản lý Độ phân giải và Tỷ lệ Khung hình (Dynamic Resolution Scaling)
+    // Mặc định nén về chuẩn 720p HD (Tối đa chiều rộng 1280px) để giảm 75% băng thông,
+    // nén JPEG nhanh hơn gấp 3 lần, loại bỏ hoàn toàn độ trễ input lag và nghẽn mạng 2 máy tính.
+    private volatile boolean hdScaleEnabled = true;
+    private volatile double streamScale = 1.0;
+    private volatile double streamScaleX = 1.0;
+    private volatile double streamScaleY = 1.0;
+    private volatile int streamWidth = 1280;
+    private volatile int streamHeight = 720;
+    private volatile boolean fileTransferring = false;
+
     // Buffer pixel để so sánh vi sai (Delta Diffing)
     private int[] prevPixels;
-    private int keyframeInterval = 90; // Gửi Full frame mỗi 90 frames (~3 giây)
+    private int keyframeInterval = 45; // Gửi Full frame mỗi 45 frames (~1.5 giây) tự làm mới màn hình khử giật nhấp nháy
     private int frameCounter = 0;
     private int idleFrameCounter = 0;
     private volatile boolean isFirstFrame = true;
@@ -77,6 +88,7 @@ public class WebScreenCaster implements Runnable {
             this.robot = new Robot();
             Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
             this.screenRect = new Rectangle(screenSize);
+            recalculateStreamDimensions();
 
             // Khởi tạo bộ nén JPEG chất lượng cao
             Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
@@ -106,7 +118,6 @@ public class WebScreenCaster implements Runnable {
                 writeParam.setCompressionQuality(this.quality);
             }
         }
-        this.isFirstFrame = true; // Bat buoc phat lai Keyframe ngay khi doi chat luong de man hinh net tuc thi
     }
 
     public void forceKeyframe() {
@@ -125,6 +136,66 @@ public class WebScreenCaster implements Runnable {
 
     public int getCurrentScreenIndex() {
         return currentScreenIndex;
+    }
+
+    public void setFileTransferring(boolean transferring) {
+        this.fileTransferring = transferring;
+        if (!transferring) {
+            this.isFirstFrame = true; // Làm mới ngay màn hình khi truyền tệp xong
+        }
+    }
+
+    public boolean isFileTransferring() {
+        return fileTransferring;
+    }
+
+    public double getStreamScale() {
+        return streamScale > 0.01 ? streamScale : 1.0;
+    }
+
+    public double getStreamScaleX() {
+        return streamScaleX > 0.01 ? streamScaleX : 1.0;
+    }
+
+    public double getStreamScaleY() {
+        return streamScaleY > 0.01 ? streamScaleY : 1.0;
+    }
+
+    private void recalculateStreamDimensions() {
+        synchronized (screenLock) {
+            int W = screenRect != null ? screenRect.width : 1366;
+            int H = screenRect != null ? screenRect.height : 768;
+            int sW = W;
+            int sH = H;
+            if (hdScaleEnabled && W > 1280) {
+                sW = 1280;
+                sH = (int) Math.round((double) H * 1280.0 / W);
+                if ((sW % 2) != 0) sW--;
+                if ((sH % 2) != 0) sH--;
+            }
+            this.streamWidth = sW;
+            this.streamHeight = sH;
+            this.streamScaleX = (double) sW / W;
+            this.streamScaleY = (double) sH / H;
+            this.streamScale = this.streamScaleX;
+        }
+    }
+
+    public int getStreamWidth() {
+        return streamWidth;
+    }
+
+    public int getStreamHeight() {
+        return streamHeight;
+    }
+
+    public void setHdScaleEnabled(boolean enabled) {
+        this.hdScaleEnabled = enabled;
+        this.screenSwitchRequested = true;
+    }
+
+    public boolean isHdScaleEnabled() {
+        return hdScaleEnabled;
     }
 
     public void setE2eeKey(javax.crypto.SecretKey key) {
@@ -213,37 +284,81 @@ public class WebScreenCaster implements Runnable {
             return;
         }
 
-        int W = screenRect.width;
-        int H = screenRect.height;
-        final int blockSize = 32; // Kích thước khối kiểm tra (32x32 pixels)
-        int blocksX = (W + blockSize - 1) / blockSize;
-        int blocksY = (H + blockSize - 1) / blockSize;
+        int W_orig = screenRect.width;
+        int H_orig = screenRect.height;
 
-        this.prevPixels = new int[W * H];
-        ByteArrayOutputStream baos = new ByteArrayOutputStream(128 * 1024);
+        int streamW = W_orig;
+        int streamH = H_orig;
+        double scale = 1.0;
+
+        if (hdScaleEnabled && W_orig > 1280) {
+            streamW = 1280;
+            streamH = (int) Math.round((double) H_orig * 1280.0 / W_orig);
+            if ((streamW % 2) != 0) streamW--;
+            if ((streamH % 2) != 0) streamH--;
+            scale = (double) streamW / W_orig;
+        }
+
+        this.streamScale = scale;
+        this.streamWidth = streamW;
+        this.streamHeight = streamH;
+
+        final int blockSize = 32; // Kích thước khối kiểm tra (32x32 pixels)
+        int blocksX = (streamW + blockSize - 1) / blockSize;
+        int blocksY = (streamH + blockSize - 1) / blockSize;
+
+        this.prevPixels = new int[streamW * streamH];
+        ByteArrayOutputStream baos = new ByteArrayOutputStream(64 * 1024);
         int consecutiveIoErrors = 0;
 
-        // Tái sử dụng BufferedImage và Graphics2D để triệt tiêu Garbage Collection (250MB/s)
-        BufferedImage reusableRgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
-        Graphics2D gReusable = reusableRgbImage.createGraphics();
+        // Image stream chuẩn hoá TYPE_INT_RGB tái sử dụng buffer
+        BufferedImage streamImage = new BufferedImage(streamW, streamH, BufferedImage.TYPE_INT_RGB);
+        Graphics2D gStream = streamImage.createGraphics();
+        gStream.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        gStream.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
 
         while (running && !Thread.currentThread().isInterrupted()) {
+            if (fileTransferring) {
+                // Nhường 100% băng thông mạng cho tệp tin đang truyền tải
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                continue;
+            }
+
             long startTime = System.currentTimeMillis();
             int frameDelay = 1000 / Math.max(1, targetFps);
 
-            // Kiểm tra yêu cầu chuyển màn hình động
+            // Kiểm tra yêu cầu chuyển màn hình động hoặc chuyển đổi độ phân giải HD
             if (screenSwitchRequested) {
                 synchronized (screenLock) {
                     screenSwitchRequested = false;
-                    W = screenRect.width;
-                    H = screenRect.height;
-                    blocksX = (W + blockSize - 1) / blockSize;
-                    blocksY = (H + blockSize - 1) / blockSize;
-                    this.prevPixels = new int[W * H];
-                    if (gReusable != null) gReusable.dispose();
-                    reusableRgbImage = new BufferedImage(W, H, BufferedImage.TYPE_INT_RGB);
-                    gReusable = reusableRgbImage.createGraphics();
-                    frameCounter = 0; // Buộc gửi Keyframe Full màn hình mới
+                    W_orig = screenRect.width;
+                    H_orig = screenRect.height;
+                    streamW = W_orig;
+                    streamH = H_orig;
+                    scale = 1.0;
+                    if (hdScaleEnabled && W_orig > 1280) {
+                        streamW = 1280;
+                        streamH = (int) Math.round((double) H_orig * 1280.0 / W_orig);
+                        if ((streamW % 2) != 0) streamW--;
+                        if ((streamH % 2) != 0) streamH--;
+                        scale = (double) streamW / W_orig;
+                    }
+                    this.streamScale = scale;
+                    this.streamWidth = streamW;
+                    this.streamHeight = streamH;
+                    blocksX = (streamW + blockSize - 1) / blockSize;
+                    blocksY = (streamH + blockSize - 1) / blockSize;
+                    this.prevPixels = new int[streamW * streamH];
+                    if (gStream != null) gStream.dispose();
+                    streamImage = new BufferedImage(streamW, streamH, BufferedImage.TYPE_INT_RGB);
+                    gStream = streamImage.createGraphics();
+                    gStream.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    gStream.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED);
+                    isFirstFrame = true; // Buộc gửi Keyframe Full màn hình mới
                 }
             }
 
@@ -258,20 +373,17 @@ public class WebScreenCaster implements Runnable {
             }
 
             try {
-                // 1. Chụp màn hình máy chủ
+                // 1. Chụp màn hình máy chủ và co dãn về chuẩn HD siêu mượt
                 BufferedImage screenshot = robot.createScreenCapture(screenRect);
                 if (!running) break;
 
-                // Chuẩn hoá ảnh về TYPE_INT_RGB tái sử dụng buffer
-                BufferedImage rgbImage;
-                if (screenshot.getType() == BufferedImage.TYPE_INT_RGB) {
-                    rgbImage = screenshot;
+                if (streamW != W_orig || streamH != H_orig) {
+                    gStream.drawImage(screenshot, 0, 0, streamW, streamH, null);
                 } else {
-                    gReusable.drawImage(screenshot, 0, 0, null);
-                    rgbImage = reusableRgbImage;
+                    gStream.drawImage(screenshot, 0, 0, null);
                 }
 
-                int[] currPixels = ((DataBufferInt) rgbImage.getRaster().getDataBuffer()).getData();
+                int[] currPixels = ((DataBufferInt) streamImage.getRaster().getDataBuffer()).getData();
 
                 // Kiểm tra trạng thái màn hình đen do Windows UAC / Secure Desktop
                 boolean isBlackSample = true;
@@ -312,26 +424,26 @@ public class WebScreenCaster implements Runnable {
 
                 for (int by = 0; by < blocksY; by++) {
                     int startY = by * blockSize;
-                    int endY = Math.min(startY + blockSize, H);
+                    int endY = Math.min(startY + blockSize, streamH);
 
                     for (int bx = 0; bx < blocksX; bx++) {
                         int startX = bx * blockSize;
-                        int endX = Math.min(startX + blockSize, W);
+                        int endX = Math.min(startX + blockSize, streamW);
 
                         boolean blockChanged = false;
                         int midX = (startX + endX) / 2;
                         int midY = (startY + endY) / 2;
 
                         // 9 điểm mẫu trọng yếu: 4 góc, tâm, và 4 trung điểm biên
-                        int p0 = startY * W + startX;
-                        int p1 = startY * W + midX;
-                        int p2 = startY * W + (endX - 1);
-                        int p3 = midY * W + startX;
-                        int p4 = midY * W + midX;
-                        int p5 = midY * W + (endX - 1);
-                        int p6 = (endY - 1) * W + startX;
-                        int p7 = (endY - 1) * W + midX;
-                        int p8 = (endY - 1) * W + (endX - 1);
+                        int p0 = startY * streamW + startX;
+                        int p1 = startY * streamW + midX;
+                        int p2 = startY * streamW + (endX - 1);
+                        int p3 = midY * streamW + startX;
+                        int p4 = midY * streamW + midX;
+                        int p5 = midY * streamW + (endX - 1);
+                        int p6 = (endY - 1) * streamW + startX;
+                        int p7 = (endY - 1) * streamW + midX;
+                        int p8 = (endY - 1) * streamW + (endX - 1);
 
                         if (currPixels[p0] != prevPixels[p0] ||
                             currPixels[p1] != prevPixels[p1] ||
@@ -346,7 +458,7 @@ public class WebScreenCaster implements Runnable {
                         } else {
                             // Quét bước nhảy 8 pixel để phát hiện văn bản hoặc đường kẻ mảnh
                             for (int y = startY; y < endY; y += 8) {
-                                int rowOffset = y * W;
+                                int rowOffset = y * streamW;
                                 for (int x = startX; x < endX; x += 8) {
                                     if (currPixels[rowOffset + x] != prevPixels[rowOffset + x]) {
                                         blockChanged = true;
@@ -367,16 +479,10 @@ public class WebScreenCaster implements Runnable {
                     }
                 }
 
-                // 3. Nếu màn hình tĩnh: duy trì nhịp gửi tối thiểu (tối đa bỏ qua 2 khung hình)
-                // Đảm bảo client không bao giờ bị tụt FPS xuống 0 - 4 FPS
-                frameCounter++;
-                // Luôn gửi ít nhất 3 Full Keyframe đầu tiên để máy khách vẽ màn hình tức thì
-                boolean forceKeyframe = isFirstFrame || (frameCounter <= 3) || (frameCounter >= keyframeInterval);
-
-                // Nếu màn hình hoàn toàn tĩnh: duy trì nhịp gửi tối thiểu (chỉ kích hoạt sau khi đã gửi 3 khung hình đầu)
-                if (changedBlocks == 0 && !forceKeyframe && frameCounter > 3) {
+                // 3. Nếu màn hình hoàn toàn tĩnh: Duy trì nhịp nghỉ nhẹ (tiết kiệm CPU & băng thông 0 KB/s)
+                if (changedBlocks == 0 && !isFirstFrame) {
                     idleFrameCounter++;
-                    if (idleFrameCounter < 10) {
+                    if (idleFrameCounter < 15) { // Nghỉ nhịp nếu tĩnh hoàn toàn (tối đa ~0.5s)
                         long elapsed = System.currentTimeMillis() - startTime;
                         if (elapsed < frameDelay) {
                             Thread.sleep(frameDelay - elapsed);
@@ -385,37 +491,13 @@ public class WebScreenCaster implements Runnable {
                     }
                 }
                 idleFrameCounter = 0;
+                isFirstFrame = false;
 
-                // 4. Phân loại Full Frame vs Delta Frame
-                int targetX = 0, targetY = 0, targetW = W, targetH = H;
-                byte frameType = 0; // 0 = Full, 1 = Delta
-                BufferedImage imageToSend;
-
-                if (!forceKeyframe && changedBlocks > 0) {
-                    int dirtyX = minBx * blockSize;
-                    int dirtyY = minBy * blockSize;
-                    int dirtyW = Math.min((maxBx + 1) * blockSize, W) - dirtyX;
-                    int dirtyH = Math.min((maxBy + 1) * blockSize, H) - dirtyY;
-
-                    float areaRatio = (float) (dirtyW * dirtyH) / (W * H);
-                    if (areaRatio <= 0.65f) {
-                        // Delta Frame: Chỉ cắt đúng vùng thay đổi
-                        frameType = 1;
-                        targetX = dirtyX;
-                        targetY = dirtyY;
-                        targetW = dirtyW;
-                        targetH = dirtyH;
-                        imageToSend = rgbImage.getSubimage(dirtyX, dirtyY, dirtyW, dirtyH);
-                    } else {
-                        // Vùng thay đổi quá lớn (>65% màn hình) -> Gửi Full Frame cho sắc nét
-                        imageToSend = rgbImage;
-                        frameCounter = 0;
-                    }
-                } else {
-                    imageToSend = rgbImage;
-                    frameCounter = 0;
-                    isFirstFrame = false;
-                }
+                // 4. Luôn truyền Full Frame hoàn chỉnh khi có thay đổi:
+                // Triệt tiêu 100% hiện tượng chớp hình, rách viền (DCT artifact), và lệch khối của Delta Frame
+                int targetX = 0, targetY = 0, targetW = streamW, targetH = streamH;
+                byte frameType = 0; // 0 = Full Frame
+                BufferedImage imageToSend = streamImage;
 
                 // Lưu lại pixel vừa xử lý
                 System.arraycopy(currPixels, 0, prevPixels, 0, currPixels.length);
@@ -441,8 +523,8 @@ public class WebScreenCaster implements Runnable {
                 // [frameType(1), w(4), h(4), targetX(4), targetY(4), targetW(4), targetH(4), timestamp(8), jpeg]
                 ByteBuffer buffer = ByteBuffer.allocate(33 + jpegBytes.length);
                 buffer.put(frameType);
-                buffer.putInt(W);
-                buffer.putInt(H);
+                buffer.putInt(streamW);
+                buffer.putInt(streamH);
                 buffer.putInt(targetX);
                 buffer.putInt(targetY);
                 buffer.putInt(targetW);

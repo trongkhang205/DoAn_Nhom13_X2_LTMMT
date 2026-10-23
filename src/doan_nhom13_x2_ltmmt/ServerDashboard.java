@@ -216,6 +216,24 @@ public class ServerDashboard extends JFrame implements ServerLogger {
 
         btnPanel.add(btnStart);
         btnPanel.add(btnStop);
+
+        JButton btnOpenFolder = new JButton("📁 Mở tệp đã nhận");
+        btnOpenFolder.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        btnOpenFolder.setForeground(new Color(15, 23, 42));
+        btnOpenFolder.setFocusPainted(false);
+        btnOpenFolder.setPreferredSize(new Dimension(160, 36));
+        btnOpenFolder.setToolTipText("Mở thư mục Downloads/RemoteDesktop_Received lưu các file nhận từ Client");
+        btnOpenFolder.addActionListener(e -> {
+            try {
+                File dir = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
+                if (!dir.exists()) dir.mkdirs();
+                Desktop.getDesktop().open(dir);
+            } catch (Exception ex) {
+                appendLog("Không thể mở thư mục nhận: " + ex.getMessage());
+            }
+        });
+        btnPanel.add(btnOpenFolder);
+
         configPanel.add(btnPanel, gbc);
 
         centerPanel.add(configPanel, BorderLayout.NORTH);

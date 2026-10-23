@@ -27,7 +27,7 @@ public class WebAudioStreamer implements Runnable {
     private final BinaryAudioSender audioSender;
     private final ServerLogger logger;
     private volatile boolean running = true;
-    private volatile boolean enabled = true; // Mặc định BẬT âm thanh
+    private volatile boolean enabled = false; // Mặc định TẮT âm thanh để dồn toàn bộ băng thông cho màn hình siêu mượt
     private TargetDataLine audioLine;
     private Process loopbackProcess;
 

@@ -28,10 +28,36 @@ public class WebInputHandler {
     private WebAudioStreamer audioStreamer;
     private java.util.function.Supplier<String> passwordSupplier = null;
     private Robot robot;
+    private final java.util.concurrent.ExecutorService inputExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "WebInput-Executor");
+        t.setDaemon(true);
+        return t;
+    });
 
     // Thư mục lưu trữ tệp tin truyền nhận
     private static final File RECEIVED_DIR = new File(System.getProperty("user.home"), "Downloads" + File.separator + "RemoteDesktop_Received");
-    private FileOutputStream currentUploadFos;
+    static {
+        ensureVisible(RECEIVED_DIR);
+    }
+
+    public static void ensureVisible(File fileOrDir) {
+        if (fileOrDir == null) return;
+        try {
+            if (!fileOrDir.exists()) {
+                fileOrDir.mkdirs();
+            }
+            if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+                try {
+                    java.nio.file.Files.setAttribute(fileOrDir.toPath(), "dos:hidden", false);
+                } catch (Exception ignored) {}
+                try {
+                    new ProcessBuilder("attrib", "-h", "-s", fileOrDir.getAbsolutePath()).start();
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private OutputStream currentUploadFos;
     private String currentUploadName;
 
     public static class FileUploadContext {
@@ -39,7 +65,7 @@ public class WebInputHandler {
         public String fileName;
         public long expectedSize;
         public long receivedBytes;
-        public FileOutputStream fos;
+        public OutputStream fos;
         public File targetFile;
         public long startTime;
     }
@@ -71,7 +97,8 @@ public class WebInputHandler {
         this.audioStreamer = audioStreamer;
         try {
             this.robot = new Robot();
-            this.robot.setAutoDelay(2);
+            this.robot.setAutoDelay(0);
+            this.robot.setAutoWaitForIdle(false);
         } catch (AWTException e) {
             if (logger != null) {
                 logger.appendLog("WebInputHandler: Không thể khởi tạo Robot: " + e.getMessage());
@@ -104,12 +131,10 @@ public class WebInputHandler {
         if (json == null || json.trim().isEmpty()) return;
 
         // Xử lý Siêu Tốc (Fast Path) cho chunk tệp tin không qua Regex
-        if (json.startsWith("{\"type\":\"file_upload_chunk\"")) {
+        if (json.contains("\"type\":\"file_upload_chunk\"") || json.startsWith("{\"type\":\"file_upload_chunk\"")) {
             handleFastFileUploadChunk(json);
             return;
         }
-
-        if (robot == null) return;
 
         Map<String, String> data = parseSimpleJson(json);
         String type = data.get("type");
@@ -118,15 +143,25 @@ public class WebInputHandler {
         try {
             switch (type) {
                 case "mouse":
-                    handleMouse(data);
+                    if (robot != null) inputExecutor.submit(() -> handleMouse(data));
                     break;
 
                 case "key":
-                    handleKey(data);
+                    if (robot != null) inputExecutor.submit(() -> handleKey(data));
                     break;
 
                 case "special":
-                    handleSpecial(data);
+                    if (robot != null) inputExecutor.submit(() -> handleSpecial(data));
+                    break;
+
+                case "open_received_folder":
+                    try {
+                        if (!RECEIVED_DIR.exists()) RECEIVED_DIR.mkdirs();
+                        Desktop.getDesktop().open(RECEIVED_DIR);
+                        sendText("{\"type\":\"toast\",\"message\":\"Đã mở thư mục Downloads/RemoteDesktop_Received trên máy chủ!\",\"toastType\":\"success\"}");
+                    } catch (Exception ex) {
+                        sendText("{\"type\":\"toast\",\"message\":\"Lỗi mở thư mục: " + escapeJson(ex.getMessage()) + "\",\"toastType\":\"error\"}");
+                    }
                     break;
 
                 case "quality":
@@ -208,11 +243,15 @@ public class WebInputHandler {
                     break;
 
                 case "file_list":
-                    handleFileList();
+                    handleFileList(data);
                     break;
 
                 case "file_download_req":
                     handleFileDownload(data);
+                    break;
+
+                case "open_folder":
+                    handleOpenFolder(data);
                     break;
 
                 // ===== ĐA MÀN HÌNH (MULTI-MONITOR) =====
@@ -238,12 +277,39 @@ public class WebInputHandler {
                     }
                     break;
 
+                // ===== CO DÃN ĐỘ PHÂN GIẢI STREAM (HD 720P / NATIVE) =====
+                case "scale_stream":
+                    if (data.containsKey("hd") && screenCaster != null) {
+                        boolean hd = Boolean.parseBoolean(data.get("hd"));
+                        screenCaster.setHdScaleEnabled(hd);
+                        sendText("{\"type\":\"toast\",\"message\":\"Đã chuyển sang chế độ " + (hd ? "Tối ưu Tốc độ (720p HD)" : "Độ nét Nguyên bản (100% Native)") + "\"}");
+                    }
+                    break;
+
                 default:
                     break;
             }
         } catch (Exception ex) {
             // Đảm bảo không crash luồng xử lý
         }
+    }
+
+    private long lastMouseDownTime = 0;
+
+    private void moveMouseScaled(double rawX, double rawY) {
+        if (robot == null) return;
+        double scaleX = screenCaster != null ? screenCaster.getStreamScaleX() : 1.0;
+        double scaleY = screenCaster != null ? screenCaster.getStreamScaleY() : 1.0;
+        Rectangle bounds = screenCaster != null ? screenCaster.getScreenBounds() : null;
+        int maxW = bounds != null ? bounds.width : 1366;
+        int maxH = bounds != null ? bounds.height : 768;
+        int actualX = (int) Math.round(rawX / scaleX);
+        int actualY = (int) Math.round(rawY / scaleY);
+        actualX = Math.max(0, Math.min(maxW - 1, actualX));
+        actualY = Math.max(0, Math.min(maxH - 1, actualY));
+        int offsetX = bounds != null ? bounds.x : 0;
+        int offsetY = bounds != null ? bounds.y : 0;
+        robot.mouseMove(offsetX + actualX, offsetY + actualY);
     }
 
     private void handleMouse(Map<String, String> data) {
@@ -253,12 +319,9 @@ public class WebInputHandler {
         switch (action) {
             case "move":
                 if (data.containsKey("x") && data.containsKey("y")) {
-                    int x = (int) Math.round(Double.parseDouble(data.get("x")));
-                    int y = (int) Math.round(Double.parseDouble(data.get("y")));
-                    Rectangle bounds = screenCaster != null ? screenCaster.getScreenBounds() : null;
-                    int offsetX = bounds != null ? bounds.x : 0;
-                    int offsetY = bounds != null ? bounds.y : 0;
-                    robot.mouseMove(offsetX + x, offsetY + y);
+                    double x = Double.parseDouble(data.get("x"));
+                    double y = Double.parseDouble(data.get("y"));
+                    moveMouseScaled(x, y);
                 }
                 break;
 
@@ -266,7 +329,15 @@ public class WebInputHandler {
                 if (data.containsKey("button")) {
                     int btn = Integer.parseInt(data.get("button"));
                     int mask = getButtonMask(btn);
-                    if (mask != 0) robot.mousePress(mask);
+                    if (mask != 0) {
+                        if (data.containsKey("x") && data.containsKey("y")) {
+                            double x = Double.parseDouble(data.get("x"));
+                            double y = Double.parseDouble(data.get("y"));
+                            moveMouseScaled(x, y);
+                        }
+                        robot.mousePress(mask);
+                        lastMouseDownTime = System.currentTimeMillis();
+                    }
                 }
                 break;
 
@@ -274,7 +345,41 @@ public class WebInputHandler {
                 if (data.containsKey("button")) {
                     int btn = Integer.parseInt(data.get("button"));
                     int mask = getButtonMask(btn);
-                    if (mask != 0) robot.mouseRelease(mask);
+                    if (mask != 0) {
+                        long elapsed = System.currentTimeMillis() - lastMouseDownTime;
+                        if (elapsed < 35) {
+                            try {
+                                Thread.sleep(35 - elapsed);
+                            } catch (Exception ignored) {}
+                        }
+                        if (data.containsKey("x") && data.containsKey("y")) {
+                            double x = Double.parseDouble(data.get("x"));
+                            double y = Double.parseDouble(data.get("y"));
+                            moveMouseScaled(x, y);
+                        }
+                        robot.mouseRelease(mask);
+                    }
+                }
+                break;
+
+            case "dblclick":
+                if (data.containsKey("button")) {
+                    int btn = Integer.parseInt(data.get("button"));
+                    int mask = getButtonMask(btn);
+                    if (mask != 0) {
+                        if (data.containsKey("x") && data.containsKey("y")) {
+                            double x = Double.parseDouble(data.get("x"));
+                            double y = Double.parseDouble(data.get("y"));
+                            moveMouseScaled(x, y);
+                        }
+                        robot.mousePress(mask);
+                        try { Thread.sleep(35); } catch (Exception ignored) {}
+                        robot.mouseRelease(mask);
+                        try { Thread.sleep(60); } catch (Exception ignored) {}
+                        robot.mousePress(mask);
+                        try { Thread.sleep(35); } catch (Exception ignored) {}
+                        robot.mouseRelease(mask);
+                    }
                 }
                 break;
 
@@ -376,14 +481,12 @@ public class WebInputHandler {
         }
 
         try {
-            if (!RECEIVED_DIR.exists()) {
-                RECEIVED_DIR.mkdirs();
-            }
+            ensureVisible(RECEIVED_DIR);
             File targetFile = new File(RECEIVED_DIR, safeName).getCanonicalFile();
             if (!targetFile.toPath().startsWith(RECEIVED_DIR.getCanonicalFile().toPath())) {
                 throw new SecurityException("Phát hiện hành vi Path Traversal bất hợp pháp!");
             }
-            FileOutputStream fos = new FileOutputStream(targetFile);
+            BufferedOutputStream fos = new BufferedOutputStream(new FileOutputStream(targetFile), 512 * 1024);
 
             FileUploadContext ctx = new FileUploadContext();
             ctx.fileId = fileId;
@@ -397,6 +500,11 @@ public class WebInputHandler {
             activeUploads.put(fileId, ctx);
             currentUploadFos = fos;
             currentUploadName = safeName;
+
+            // Tạm dừng/hạ luồng chụp màn hình để nhường 100% băng thông mạng cho tệp tin truyền siêu tốc
+            if (screenCaster != null) {
+                screenCaster.setFileTransferring(true);
+            }
 
             if (logger != null) {
                 logger.appendLog("WebInputHandler: Bắt đầu nhận tệp [" + safeName + "] (" + formatFileSize(size) + ") [ID: " + fileId + "]...");
@@ -417,18 +525,21 @@ public class WebInputHandler {
             if (dataIdx == -1) return;
             int startQuote = json.indexOf('"', dataIdx + 7);
             if (startQuote == -1) return;
-            int endQuote = json.lastIndexOf('"');
-            if (endQuote <= startQuote) return;
+            int endQuote = json.indexOf('"', startQuote + 1);
+            if (endQuote == -1) return;
             String b64 = json.substring(startQuote + 1, endQuote);
 
             String fileId = null;
             int idIdx = json.indexOf("\"fileId\":");
             if (idIdx != -1) {
-                int q1 = json.indexOf('"', idIdx + 9);
-                if (q1 != -1) {
-                    int q2 = json.indexOf('"', q1 + 1);
-                    if (q2 != -1) {
-                        fileId = json.substring(q1 + 1, q2);
+                int colon = json.indexOf(':', idIdx + 8);
+                if (colon != -1) {
+                    int q1 = json.indexOf('"', colon);
+                    if (q1 != -1) {
+                        int q2 = json.indexOf('"', q1 + 1);
+                        if (q2 != -1) {
+                            fileId = json.substring(q1 + 1, q2);
+                        }
                     }
                 }
             }
@@ -441,12 +552,11 @@ public class WebInputHandler {
                 ctx = activeUploads.values().iterator().next();
             }
 
+            byte[] bytes = Base64.getDecoder().decode(b64);
             if (ctx != null && ctx.fos != null) {
-                byte[] bytes = Base64.getDecoder().decode(b64);
                 ctx.fos.write(bytes);
                 ctx.receivedBytes += bytes.length;
             } else if (currentUploadFos != null) {
-                byte[] bytes = Base64.getDecoder().decode(b64);
                 currentUploadFos.write(bytes);
             }
         } catch (Exception e) {
@@ -465,12 +575,11 @@ public class WebInputHandler {
                 ctx = activeUploads.values().iterator().next();
             }
 
+            byte[] bytes = Base64.getDecoder().decode(b64);
             if (ctx != null && ctx.fos != null) {
-                byte[] bytes = Base64.getDecoder().decode(b64);
                 ctx.fos.write(bytes);
                 ctx.receivedBytes += bytes.length;
             } else if (currentUploadFos != null) {
-                byte[] bytes = Base64.getDecoder().decode(b64);
                 currentUploadFos.write(bytes);
             }
         } catch (Exception e) {
@@ -499,14 +608,34 @@ public class WebInputHandler {
                 double speed = (mb / (took / 1000.0));
                 String speedStr = String.format(Locale.US, "%.1f MB/s", speed);
 
+                ensureVisible(ctx.targetFile);
+
+                // Khôi phục lại luồng truyền màn hình 30 FPS ngay lập tức
+                if (screenCaster != null) {
+                    screenCaster.setFileTransferring(false);
+                    screenCaster.forceKeyframe();
+                }
+
                 if (logger != null) {
                     logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + ctx.fileName + "] (" + formatFileSize(ctx.receivedBytes) + ") với tốc độ " + speedStr + " -> Lưu tại: " + ctx.targetFile.getAbsolutePath());
                 }
 
-                String resp = "{\"type\":\"file_upload_success\",\"fileId\":\"" + escapeJson(ctx.fileId) + "\",\"name\":\"" + escapeJson(ctx.fileName) + "\",\"size\":" + ctx.receivedBytes + ",\"speed\":\"" + speedStr + "\"}";
+                String resp = "{\"type\":\"file_upload_success\",\"fileId\":\"" + escapeJson(ctx.fileId) + "\",\"name\":\"" + escapeJson(ctx.fileName) + "\",\"size\":" + ctx.receivedBytes + ",\"speed\":\"" + speedStr + "\",\"savedPath\":\"" + escapeJson(ctx.targetFile.getAbsolutePath()) + "\"}";
                 sendText(resp);
+
+                // Tự động mở Windows Explorer chọn ngay tệp vừa nhận
+                try {
+                    String os = System.getProperty("os.name", "").toLowerCase();
+                    if (os.contains("win")) {
+                        new ProcessBuilder("explorer.exe", "/select,", ctx.targetFile.getAbsolutePath()).start();
+                    } else {
+                        Desktop.getDesktop().open(ctx.targetFile.getParentFile());
+                    }
+                } catch (Exception ignored) {}
             } catch (Exception e) {
                 if (logger != null) logger.appendLog("Lỗi đóng tệp: " + e.getMessage());
+                String err = "{\"type\":\"file_upload_error\",\"fileId\":\"" + escapeJson(ctx.fileId) + "\",\"message\":\"Lỗi đóng tệp: " + escapeJson(e.getMessage()) + "\"}";
+                sendText(err);
             } finally {
                 if (currentUploadFos == ctx.fos) {
                     currentUploadFos = null;
@@ -517,28 +646,75 @@ public class WebInputHandler {
             try {
                 currentUploadFos.flush();
                 currentUploadFos.close();
+                File fallbackFile = new File(RECEIVED_DIR, currentUploadName);
                 if (logger != null) {
-                    logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + currentUploadName + "] lưu tại: " + RECEIVED_DIR.getAbsolutePath());
+                    logger.appendLog("WebInputHandler: Đã nhận trọn vẹn tệp [" + currentUploadName + "] lưu tại: " + fallbackFile.getAbsolutePath());
                 }
-                String resp = "{\"type\":\"file_upload_success\",\"name\":\"" + escapeJson(currentUploadName) + "\"}";
+                String resp = "{\"type\":\"file_upload_success\",\"fileId\":\"" + (fileId != null ? escapeJson(fileId) : "") + "\",\"name\":\"" + escapeJson(currentUploadName) + "\",\"savedPath\":\"" + escapeJson(fallbackFile.getAbsolutePath()) + "\"}";
                 sendText(resp);
+
+                try {
+                    String os = System.getProperty("os.name", "").toLowerCase();
+                    if (os.contains("win")) {
+                        new ProcessBuilder("explorer.exe", "/select,", fallbackFile.getAbsolutePath()).start();
+                    } else {
+                        Desktop.getDesktop().open(RECEIVED_DIR);
+                    }
+                } catch (Exception ignored) {}
             } catch (Exception ignored) {}
             currentUploadFos = null;
             currentUploadName = null;
         }
     }
 
-    private void handleFileList() {
+    private File resolveTargetDirectory(String folderKey) {
+        String userHome = System.getProperty("user.home");
+        if ("desktop".equalsIgnoreCase(folderKey)) {
+            File d = new File(userHome, "Desktop");
+            if (d.exists() && d.isDirectory()) return d;
+        } else if ("downloads".equalsIgnoreCase(folderKey)) {
+            File d = new File(userHome, "Downloads");
+            if (d.exists() && d.isDirectory()) return d;
+        } else if ("documents".equalsIgnoreCase(folderKey)) {
+            File d = new File(userHome, "Documents");
+            if (d.exists() && d.isDirectory()) return d;
+        }
+        return RECEIVED_DIR;
+    }
+
+    private void handleOpenFolder(Map<String, String> data) {
         try {
-            if (!RECEIVED_DIR.exists()) {
-                RECEIVED_DIR.mkdirs();
+            String folderKey = data != null ? data.get("folder") : "received";
+            File targetDir = resolveTargetDirectory(folderKey);
+            if (!targetDir.exists()) {
+                targetDir.mkdirs();
             }
-            File[] files = RECEIVED_DIR.listFiles();
-            StringBuilder sb = new StringBuilder("{\"type\":\"file_list_resp\",\"files\":[");
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(targetDir);
+                if (logger != null) {
+                    logger.appendLog("WebInputHandler: Đã mở thư mục [" + targetDir.getAbsolutePath() + "] trên máy chủ.");
+                }
+                sendText("{\"type\":\"toast\",\"message\":\"Đã mở thư mục trên máy chủ: " + escapeJson(targetDir.getAbsolutePath()) + "\",\"toastType\":\"info\"}");
+            }
+        } catch (Exception e) {
+            if (logger != null) logger.appendLog("Không thể mở thư mục: " + e.getMessage());
+        }
+    }
+
+    private void handleFileList(Map<String, String> data) {
+        try {
+            String folderKey = data != null ? data.get("folder") : "received";
+            File targetDir = resolveTargetDirectory(folderKey);
+            if (!targetDir.exists()) {
+                targetDir.mkdirs();
+            }
+            File[] files = targetDir.listFiles();
+            StringBuilder sb = new StringBuilder("{\"type\":\"file_list_resp\",\"folder\":\"").append(escapeJson(folderKey)).append("\",\"files\":[");
             if (files != null) {
                 boolean first = true;
+                Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
                 for (File f : files) {
-                    if (f.isFile()) {
+                    if (f.isFile() && !f.isHidden()) {
                         if (!first) sb.append(",");
                         first = false;
                         sb.append("{\"name\":\"").append(escapeJson(f.getName()))
@@ -558,11 +734,14 @@ public class WebInputHandler {
     private void handleFileDownload(Map<String, String> data) {
         String rawName = data.get("name");
         if (rawName == null) return;
+        String folderKey = data.get("folder");
+        File baseDir = resolveTargetDirectory(folderKey);
+
         String safeName = new File(rawName).getName().replaceAll("[\\\\/:*?\"<>|]", "_");
         File f;
         try {
-            f = new File(RECEIVED_DIR, safeName).getCanonicalFile();
-            if (!f.toPath().startsWith(RECEIVED_DIR.getCanonicalFile().toPath())) {
+            f = new File(baseDir, safeName).getCanonicalFile();
+            if (!f.toPath().startsWith(baseDir.getCanonicalFile().toPath())) {
                 sendText("{\"type\":\"file_download_error\",\"name\":\"" + escapeJson(safeName) + "\",\"message\":\"Từ chối: Truy cập ngoài thư mục tệp tin!\"}");
                 return;
             }
@@ -578,8 +757,8 @@ public class WebInputHandler {
 
         new Thread(() -> {
             try (FileInputStream fis = new FileInputStream(f)) {
-                // Tăng bộ đệm lên 128KB để giảm 50% số lượng gói tin và nhường băng thông cho video
-                byte[] buffer = new byte[128 * 1024];
+                // Bộ đệm 64KB tối ưu chống nghẽn đường truyền trên 4G và mạng nội bộ
+                byte[] buffer = new byte[64 * 1024];
                 long totalSize = f.length();
                 int totalChunks = (int) Math.ceil((double) totalSize / buffer.length);
                 if (totalChunks == 0) totalChunks = 1;
@@ -597,7 +776,7 @@ public class WebInputHandler {
                             ",\"data\":\"" + b64 + "\"}";
                     sendText(msg);
                     chunkIndex++;
-                    Thread.sleep(5);
+                    Thread.sleep(8);
                 }
 
                 sendText("{\"type\":\"file_download_complete\",\"name\":\"" + escapeJson(safeName) + "\"}");
@@ -626,13 +805,14 @@ public class WebInputHandler {
         }
     }
 
+    private static final Pattern JSON_PATTERN = Pattern.compile("\"([^\"]+)\"\\s*:\\s*(?:\"([^\"]*)\"|([\\w.-]+))");
+
     /**
      * Parser JSON phẳng đơn giản không cần thư viện bên ngoài
      */
     public static Map<String, String> parseSimpleJson(String json) {
         Map<String, String> map = new HashMap<>();
-        Pattern pattern = Pattern.compile("\"([^\"]+)\"\\s*:\\s*(?:\"([^\"]*)\"|([\\w.-]+))");
-        Matcher matcher = pattern.matcher(json);
+        Matcher matcher = JSON_PATTERN.matcher(json);
         while (matcher.find()) {
             String key = matcher.group(1);
             String val = matcher.group(2) != null ? matcher.group(2) : matcher.group(3);

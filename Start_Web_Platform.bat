@@ -47,21 +47,44 @@ echo [OK] He thong da san sang! Mo trinh duyet de su dung.
 goto END
 
 :INTERNET_MODE
+if exist "tunnel_url.txt" del /f /q "tunnel_url.txt"
+
 echo [*] Dang khoi dong Cloud Relay Gateway tren cong 3000...
 start "Cloud Relay Gateway (Port 3000)" cmd /k "cd gateway && node server.js"
 timeout /t 2 /nobreak >nul
 
-echo [*] Dang khoi chay Web Remote Engine tren cong 8080...
-start "" javaw -cp "build\classes" doan_nhom13_x2_ltmmt.WebRemoteServer
-timeout /t 2 /nobreak >nul
+echo [*] Dang khoi chay Web Remote Engine tren cong 8080 voi Cau Noi 4G...
+start "" javaw -Dauto.tunnel=true -cp "build\classes" doan_nhom13_x2_ltmmt.WebRemoteServer
 
-echo [*] Dang tao duong link Cloudflare Tunnel toc do cao cho dien thoai 4G...
-start "Cloudflare Tunnel 4G (Khong Bao Gio Bi Loi 503)" cmd /k "echo ======================================================== && echo   COPY DUONG LINK HTTPS CO DUOI .trycloudflare.com VA MO TREN DIEN THOAI: && echo ======================================================== && .\cloudflared.exe tunnel --url http://localhost:3000"
+echo [*] Dang tao duong link Cloudflare Tunnel toc do cao (HTTP/2)...
+echo [*] Vui long doi 3-5 giay...
 
-timeout /t 3 /nobreak >nul
-echo [*] Dang mo trinh duyet quan ly may chu (http://localhost:8080)...
+set /a count=0
+:WAIT_TUNNEL_MODE
+timeout /t 1 /nobreak >nul
+set /a count+=1
+if exist "tunnel_url.txt" (
+    set /p TUNNEL_URL=<tunnel_url.txt
+    goto SHOW_LINK_MODE
+)
+if %count% geq 25 goto TIMEOUT_MODE
+goto WAIT_TUNNEL_MODE
+
+:SHOW_LINK_MODE
+echo.
+echo ========================================================
+echo   COPY DUONG LINK HTTPS VA MO TREN DIEN THOAI 4G:
+echo   %TUNNEL_URL%
+echo ========================================================
+echo.
 start http://localhost:8080
 echo [OK] He thong ket noi Internet da san sang!
+pause
+goto END
+
+:TIMEOUT_MODE
+start http://localhost:8080
+echo [OK] Dang mo trinh duyet quan ly may chu...
 goto END
 
 :END
