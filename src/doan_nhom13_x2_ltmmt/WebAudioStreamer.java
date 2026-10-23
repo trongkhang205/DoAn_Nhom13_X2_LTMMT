@@ -92,7 +92,7 @@ public class WebAudioStreamer implements Runnable {
             } else if (AudioSystem.isLineSupported(info)) {
                 audioLine = (TargetDataLine) AudioSystem.getLine(info);
                 if (logger != null) {
-                    logger.appendLog("WebAudioStreamer: Đã kết nối nguồn thu âm mặc định (Primary Sound Capture).");
+                    logger.appendLog("WebAudioStreamer: Đã kết nối nguồn thu âm mặc định (Microphone). Để truyền âm thanh bài hát/video trực tiếp từ máy tính, hãy BẬT Stereo Mix trong Windows Sound Settings.");
                 }
             } else {
                 if (logger != null) {
@@ -124,7 +124,7 @@ public class WebAudioStreamer implements Runnable {
 
                 // Phát hiện im lặng (Noise Gate): nếu không có âm thanh thực tế, bỏ qua để nhường 100% băng thông cho màn hình
                 boolean isSilent = true;
-                int threshold = 180;
+                int threshold = 50; // Nguong phat hien am thanh nhay hon giup thu duoc nhac em dem
                 for (int i = 0; i < bytesRead - 1; i += 2) {
                     short sample = (short) ((pcmBuffer[i + 1] << 8) | (pcmBuffer[i] & 0xFF));
                     if (Math.abs(sample) > threshold) {

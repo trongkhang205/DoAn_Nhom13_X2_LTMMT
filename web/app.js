@@ -574,6 +574,7 @@
 
     // Bắt đầu kết nối Client (Mạng LAN hoặc Xuyên Internet)
     btnClientStartConnect.addEventListener('click', () => {
+        initAudioContext();
         const password = clientTargetPass.value.trim();
 
         if (clientConnectionMode === 'internet') {
@@ -2116,9 +2117,17 @@
             }
         }
         if (audioCtx && audioCtx.state === 'suspended') {
-            audioCtx.resume();
+            audioCtx.resume().catch(e => console.warn('Audio resume error:', e));
         }
     }
+
+    // Tự động mở khóa âm thanh trên mọi thiết bị di động / desktop ngay khi có tương tác người dùng
+    const unlockAudioGesture = () => {
+        initAudioContext();
+    };
+    ['click', 'touchstart', 'touchend', 'pointerdown'].forEach(evt => {
+        document.addEventListener(evt, unlockAudioGesture, { passive: true });
+    });
 
     function playAudioPcmChunk(pcmDataView, sampleRate) {
         if (!isAudioEnabled) return;
